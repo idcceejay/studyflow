@@ -164,6 +164,27 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
 .fc-nav{display:flex;justify-content:center;align-items:center;gap:16px}
 .fc-count{font-size:13.5px;color:var(--muted);font-weight:600;min-width:70px;text-align:center}
 
+/* ---------- tutor chat ---------- */
+.chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 300px);min-height:320px}
+.chat-log{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:4px 2px 14px}
+.msg{max-width:80%;padding:10px 15px;border-radius:14px;font-size:14px;line-height:1.55;overflow-wrap:break-word}
+.msg.user{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px;white-space:pre-wrap}
+.msg.bot{align-self:flex-start;background:var(--surface);border:1px solid var(--border);border-bottom-left-radius:4px;box-shadow:var(--shadow)}
+.msg.bot p{margin:5px 0}
+.msg.bot ul,.msg.bot ol{margin:5px 0 5px 20px}
+.msg.bot code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:12.5px}
+.msg.bot pre{background:#1e2230;color:#e6e9f2;padding:10px 12px;border-radius:8px;overflow-x:auto;margin:6px 0}
+.msg.bot pre code{background:none}
+.chat-empty{margin:auto;text-align:center;color:var(--muted);font-size:13.5px;line-height:1.7}
+.chat-input-row{display:flex;gap:8px;margin-top:10px;align-items:flex-end}
+.chat-input-row textarea{flex:1;padding:11px 14px;border:1px solid var(--border);border-radius:11px;resize:none;font-size:14px;outline:none;line-height:1.4;max-height:130px}
+.chat-input-row textarea:focus{border-color:var(--accent)}
+.link-row{display:flex;gap:8px;margin-bottom:16px}
+.link-row input{flex:1;padding:10px 13px;border:1px solid var(--border);border-radius:9px;font-size:13.5px;outline:none}
+.link-row input:focus{border-color:var(--accent)}
+.or-divider{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;margin:14px 0;text-transform:uppercase;letter-spacing:.06em}
+.or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:var(--border)}
+
 /* ---------- modal ---------- */
 .overlay{position:fixed;inset:0;background:rgba(16,20,32,.45);display:none;align-items:center;justify-content:center;z-index:50}
 .overlay.open{display:flex}
@@ -213,6 +234,7 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
         <button class="tab active" data-view="notes" onclick="switchView('notes')">📝 Notes</button>
         <button class="tab" data-view="quiz" onclick="switchView('quiz')">❓ Quiz</button>
         <button class="tab" data-view="cards" onclick="switchView('cards')">🃏 Flashcards</button>
+        <button class="tab" data-view="tutor" onclick="switchView('tutor')">💬 Tutor</button>
       </div>
       <div style="display:flex;align-items:center;gap:12px">
         <div class="status-pill" id="apiStatus"><span class="dot"></span>No API key</div>
@@ -284,6 +306,26 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
         </div>
         <div id="cardArea"></div>
       </div>
+
+      <!-- TUTOR VIEW -->
+      <div class="view" id="view-tutor">
+        <div class="panel" style="margin-bottom:14px">
+          <h3>💬 Your 24/7 AI Tutor</h3>
+          <p class="panel-sub">Ask anything, any time — explain a concept, work through a problem, or quiz yourself out loud. Your tutor can read your notes for context.</p>
+          <div class="gen-row">
+            <select id="tutorNoteSel"></select>
+            <button class="btn btn-ghost" onclick="clearTutor()">🗑 Clear chat</button>
+          </div>
+        </div>
+        <div class="chat-wrap">
+          <div class="chat-log" id="chatLog"></div>
+          <div class="chat-input-row">
+            <textarea id="tutorInput" rows="1" placeholder="Ask your tutor anything… (Enter to send, Shift+Enter for a new line)"
+              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendTutor()}"></textarea>
+            <button class="btn btn-primary" id="tutorSend" onclick="sendTutor()">Send</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -291,8 +333,13 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
 <!-- Upload modal -->
 <div class="overlay" id="uploadModal">
   <div class="modal">
-    <h3>Upload lecture(s)</h3>
-    <p class="sub">Supported: <b>.pptx, .pdf, .docx, .txt, .md</b> — select <b>one or multiple files</b>; they're read entirely in your browser, then AI combines and summarizes them into one set of study notes.</p>
+    <h3>Add a lecture</h3>
+    <p class="sub">Upload files (<b>.pptx, .pdf, .docx, .txt, .md</b> — one or multiple), or paste a <b>YouTube video</b> or <b>article link</b>. AI turns it into organized study notes.</p>
+    <div class="link-row">
+      <input id="linkInput" placeholder="🔗 Paste a YouTube or article link…" onkeydown="if(event.key==='Enter')processLink()">
+      <button class="btn btn-primary" id="linkBtn" onclick="processLink()">Process</button>
+    </div>
+    <div class="or-divider">or upload files</div>
     <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
       <div class="dz-icon">📄</div>
       <div><b>Click to browse</b> or drag & drop files here (multiple allowed)</div>
@@ -379,11 +426,21 @@ function getModel(){return localStorage.getItem(LS_MODEL)||'gemini-2.5-flash'}
 function fmtDate(ts){return new Date(ts).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})}
 
 /* ================= gemini ================= */
-async function gemini(prompt,{json=false}={}) {
+async function gemini(prompt,{json=false,ytUrl=null,urlContext=false,contents=null,system=null}={}) {
   const key=getKey();
   if(!key){openSettings();throw new Error('Please add your free Gemini API key in Settings first.')}
-  const body={contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.4}};
+  let body;
+  if(contents){body={contents}}
+  else{
+    const parts=[];
+    if(ytUrl)parts.push({file_data:{file_uri:ytUrl}});
+    parts.push({text:prompt});
+    body={contents:[{parts}]};
+  }
+  body.generationConfig={temperature:0.4};
   if(json)body.generationConfig.responseMimeType='application/json';
+  if(urlContext)body.tools=[{url_context:{}}];
+  if(system)body.system_instruction={parts:[{text:system}]};
   const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${getModel()}:generateContent?key=${key}`,
     {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(!r.ok){
@@ -481,12 +538,7 @@ async function handleFiles(fileList){
     if(!raw||raw.length<40)throw new Error('Could not find readable text in these files (scanned/image-only files?).');
     if(raw.length>400000)raw=raw.slice(0,400000)+'\n[...truncated]';
     dz.innerHTML=`<div class="spinner dark"></div><div style="margin-top:8px">AI is summarizing ${files.length>1?files.length+' lectures':'your lecture'}…</div>`;
-    const style=$('sumStyle').value;
-    const styleTxt={
-      detailed:'detailed, well-organized study notes with clear headings (##), bullet points, **bolded key terms**, and definitions',
-      concise:'a concise high-level summary with short sections and brief bullet points',
-      exam:'exam-focused study notes emphasizing definitions, formulas, processes, and points likely to be tested, with headings and bullets'
-    }[style];
+    const styleTxt=getStyleTxt();
     const names=files.map(f=>f.name).join(', ');
     const multi=files.length>1;
     const md=await gemini(
@@ -509,6 +561,70 @@ ${raw}`);
     toast('✅ Lecture summarized into notes!');
   }catch(err){toast('⚠ '+err.message,5000)}
   finally{dz.innerHTML=dzHTML}
+}
+
+/* ================= link processing (YouTube & articles) ================= */
+function getStyleTxt(){
+  return{
+    detailed:'detailed, well-organized study notes with clear headings (##), bullet points, **bolded key terms**, and definitions',
+    concise:'a concise high-level summary with short sections and brief bullet points',
+    exam:'exam-focused study notes emphasizing definitions, formulas, processes, and points likely to be tested, with headings and bullets'
+  }[$('sumStyle').value];
+}
+const isYouTube=u=>/(?:youtube\.com\/(?:watch|shorts|live|embed)|youtu\.be\/)/.test(u);
+const noteRules=`Rules:
+- Output ONLY clean Markdown (no preamble, no code fences around the whole thing).
+- Start with a single line: "# <a short descriptive title>".
+- Preserve all important concepts, terms, formulas, and examples.
+- Organize logically by topic.`;
+async function processLink(){
+  let url=$('linkInput').value.trim();
+  if(!url){toast('Paste a link first');return}
+  if(!/^https?:\/\//i.test(url))url='https://'+url;
+  if(!getKey()){closeModal('uploadModal');openSettings();toast('Add your Gemini API key first (Settings)');return}
+  const btn=$('linkBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';
+  try{
+    const styleTxt=getStyleTxt();
+    let md,srcLabel;
+    if(isYouTube(url)){
+      srcLabel='YouTube video';
+      md=await gemini(
+`You are an expert note-taker helping a college student study. Watch this lecture video and rewrite its content as ${styleTxt}.
+
+${noteRules}`,{ytUrl:url});
+    }else{
+      srcLabel=new URL(url).hostname;
+      try{
+        md=await gemini(
+`You are an expert note-taker helping a college student study. Read the article at this URL: ${url}
+
+Rewrite its content as ${styleTxt}.
+
+${noteRules}`,{urlContext:true});
+        if(!md||md.length<200)throw new Error('empty');
+      }catch(e){
+        const r=await fetch('https://r.jina.ai/'+url);
+        if(!r.ok)throw new Error('Could not read that page — it may be paywalled or blocked.');
+        let raw=await r.text();
+        if(raw.length>150000)raw=raw.slice(0,150000)+'\n[...truncated]';
+        md=await gemini(
+`You are an expert note-taker helping a college student study. Below is the extracted text of a web article. Rewrite it as ${styleTxt}. Ignore navigation menus, ads, and unrelated page content.
+
+${noteRules}
+
+ARTICLE TEXT:
+${raw}`);
+      }
+    }
+    const m=md.match(/^#\s+(.+)$/m);
+    const note={id:uid(),title:m?m[1].trim():srcLabel,body:md.trim(),created:Date.now(),source:srcLabel};
+    notes.unshift(note);persist();
+    $('linkInput').value='';
+    closeModal('uploadModal');
+    currentId=note.id;renderSidebar();renderNote();switchView('notes');
+    toast('✅ Link turned into notes!');
+  }catch(err){toast('⚠ '+err.message,6000)}
+  finally{btn.disabled=false;btn.innerHTML='Process'}
 }
 
 /* ================= notes CRUD ================= */
@@ -802,6 +918,7 @@ function renderSidebar(){
   // note selects for quiz/cards
   const opts=notes.map(n=>`<option value="${n.id}">${esc(n.title)}</option>`).join('')||'<option value="">— no notes yet —</option>';
   $('quizNoteSel').innerHTML=opts;$('cardNoteSel').innerHTML=opts;
+  $('tutorNoteSel').innerHTML='<option value="all">📚 Context: all my notes</option><option value="none">💭 No notes (general tutor)</option>'+notes.map(n=>`<option value="${n.id}">📄 ${esc(n.title)}</option>`).join('');
   onQuizNoteChange();
 }
 function renderNote(){
@@ -817,6 +934,53 @@ function switchView(v){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   $('view-'+v).classList.add('active');
+}
+
+/* ================= 24/7 tutor chat ================= */
+const LS_TUTOR='sf_tutor';
+let tutorMsgs=JSON.parse(localStorage.getItem(LS_TUTOR)||'[]');
+function tutorContext(){
+  const sel=$('tutorNoteSel').value;
+  if(sel==='none'||!notes.length)return '';
+  if(sel==='all')return notes.map(n=>`## ${n.title}\n${n.body}`).join('\n\n').slice(0,200000);
+  const n=notes.find(x=>x.id===sel);
+  return n?`## ${n.title}\n${n.body}`.slice(0,150000):'';
+}
+async function sendTutor(){
+  const inp=$('tutorInput'),q=inp.value.trim();
+  if(!q)return;
+  if(!getKey()){openSettings();toast('Add your Gemini API key first (Settings)');return}
+  tutorMsgs.push({role:'user',text:q});
+  inp.value='';
+  const btn=$('tutorSend');btn.disabled=true;
+  renderTutor(true);
+  try{
+    const ctx=tutorContext();
+    const system=`You are a friendly, patient, expert tutor available 24/7 to help a college student. Explain clearly, use examples and analogies, and check understanding with a short follow-up question when it helps. Use Markdown formatting. Keep answers focused — thorough but not bloated. If the student seems to want practice, quiz them.${ctx?`\n\nTHE STUDENT'S NOTES (use as your primary reference when relevant):\n${ctx}`:''}`;
+    const contents=tutorMsgs.slice(-16).map(m=>({role:m.role==='user'?'user':'model',parts:[{text:m.text}]}));
+    const reply=await gemini(null,{contents,system});
+    tutorMsgs.push({role:'model',text:reply.trim()});
+  }catch(err){tutorMsgs.push({role:'model',text:'⚠ '+err.message})}
+  localStorage.setItem(LS_TUTOR,JSON.stringify(tutorMsgs.slice(-40)));
+  btn.disabled=false;
+  renderTutor();
+  $('tutorInput').focus();
+}
+function renderTutor(thinking){
+  const log=$('chatLog');
+  if(!tutorMsgs.length&&!thinking){
+    log.innerHTML=`<div class="chat-empty">👋 Hey! I'm your tutor.<br>Ask me to explain anything from your notes, walk through a problem,<br>or quiz you on a topic — I'm here 24/7.</div>`;
+    return;
+  }
+  log.innerHTML=tutorMsgs.map(m=>m.role==='user'
+    ?`<div class="msg user">${esc(m.text)}</div>`
+    :`<div class="msg bot">${marked.parse(m.text)}</div>`).join('')
+    +(thinking?'<div class="msg bot"><span class="spinner dark"></span></div>':'');
+  log.scrollTop=log.scrollHeight;
+}
+function clearTutor(){
+  if(tutorMsgs.length&&!confirm('Clear the whole conversation?'))return;
+  tutorMsgs=[];localStorage.removeItem(LS_TUTOR);renderTutor();
 }
 
 /* ================= combine into study guide ================= */
@@ -902,7 +1066,7 @@ function toggleTheme(){
 
 /* ================= init ================= */
 currentId=notes[0]?.id||null;
-renderSidebar();renderNote();updateStatus();
+renderSidebar();renderNote();updateStatus();renderTutor();
 applyTheme(localStorage.getItem(LS_THEME)||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));
 </script>
 </body>
