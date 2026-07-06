@@ -130,6 +130,24 @@ input,textarea,select{font-family:inherit}
 .explain{font-size:13.5px;color:var(--muted);background:var(--bg);border-radius:9px;padding:10px 14px;margin-top:6px;line-height:1.5;display:none}
 .score-banner{background:linear-gradient(135deg,#4f6df5,#8b5cf6);color:#fff;border-radius:var(--radius);padding:26px;text-align:center;margin-bottom:18px}
 .score-banner .sc{font-size:34px;font-weight:800}
+.panel-sub{font-size:13px;color:var(--muted);margin:-6px 0 14px;line-height:1.5}
+.progress-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:14px;box-shadow:var(--shadow)}
+.ptrack{height:8px;background:var(--bg);border-radius:5px;overflow:hidden;margin-bottom:10px}
+.pfill{height:100%;background:linear-gradient(90deg,#4f6df5,#8b5cf6);border-radius:5px;transition:width .4s}
+.legend{display:flex;gap:16px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
+.legend b{color:var(--text)}
+.chip{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
+.learn-input{width:100%;padding:12px 15px;border:1.5px solid var(--border);border-radius:10px;font-size:14.5px;outline:none;background:var(--surface);color:var(--text);margin-bottom:10px}
+.learn-input:focus{border-color:var(--accent)}
+.fb{border-radius:10px;padding:12px 16px;margin-top:12px;font-size:14px;line-height:1.5}
+.fb.good{background:#ecfaf3;border:1px solid #bfe8d4;color:#1c6b48}
+.fb.bad{background:#fef2f2;border:1px solid #f6caca;color:#a13236}
+body.dark .fb.good{background:#153327;border-color:#245c42;color:#7fd8ab}
+body.dark .fb.bad{background:#3a1d1f;border-color:#5c2a2c;color:#f0a0a3}
+.qbadge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:3px 9px;border-radius:20px;margin-bottom:10px}
+.qbadge.mc{background:var(--accent-soft);color:var(--accent)}
+.qbadge.wr{background:#fef3e2;color:#b45309}
+body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
 
 /* ---------- flashcards ---------- */
 .fc-stage{perspective:1200px;max-width:560px;margin:0 auto 20px}
@@ -227,15 +245,17 @@ input,textarea,select{font-family:inherit}
       <!-- QUIZ VIEW -->
       <div class="view" id="view-quiz">
         <div class="panel">
-          <h3>❓ Generate a quiz from your notes</h3>
+          <h3>🧠 Learn — master your notes with active recall</h3>
+          <p class="panel-sub">Each concept starts as multiple choice, then you must <b>type the answer from memory</b> to master it. Miss one and it keeps coming back until you've mastered everything — just like Quizlet Learn.</p>
           <div class="gen-row">
-            <select id="quizNoteSel"></select>
+            <select id="quizNoteSel" onchange="onQuizNoteChange()"></select>
             <select id="quizCount" style="min-width:130px">
-              <option value="5">5 questions</option>
-              <option value="10" selected>10 questions</option>
-              <option value="15">15 questions</option>
+              <option value="8">8 concepts</option>
+              <option value="12" selected>12 concepts</option>
+              <option value="20">20 concepts</option>
             </select>
-            <button class="btn btn-primary" id="quizGenBtn" onclick="genQuiz()">Generate Quiz</button>
+            <button class="btn btn-primary" id="quizGenBtn" onclick="genLearn()">Start Learning</button>
+            <button class="btn btn-soft" id="resumeBtn" style="display:none" onclick="resumeLearn()">▶ Resume session</button>
           </div>
         </div>
         <div id="quizArea"></div>
@@ -515,8 +535,40 @@ ${n.body}`);
   finally{btn.disabled=false;btn.innerHTML='✨ AI Edit'}
 }
 
-/* ================= quiz ================= */
-async function genQuiz(){
+/* ================= learn mode (Quizlet-style active recall) ================= */
+let learn=null;
+const LKEY=id=>'sf_learn_'+id;
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function lev(a,b){
+  const m=a.length,n=b.length;if(!m)return n;if(!n)return m;
+  let prev=[...Array(n+1).keys()];
+  for(let i=1;i<=m;i++){const cur=[i];
+    for(let j=1;j<=n;j++)cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1));
+    prev=cur}
+  return prev[n];
+}
+const norm=s=>s.toLowerCase().replace(/[^a-z0-9\s]/g,'').replace(/\s+/g,' ').trim();
+function isCorrectAnswer(given,expected){
+  const g=norm(given),e=norm(expected);
+  if(!g)return false;
+  if(g===e)return true;
+  if(e.length>3&&(g===e+'s'||g+'s'===e))return true;
+  if(e.length>6&&(g.includes(e)||e.includes(g))&&Math.min(g.length,e.length)/Math.max(g.length,e.length)>0.6)return true;
+  return lev(g,e)<=Math.max(1,Math.floor(e.length*0.18));
+}
+function onQuizNoteChange(){
+  const id=$('quizNoteSel').value;
+  const saved=id&&localStorage.getItem(LKEY(id));
+  $('resumeBtn').style.display=saved?'':'none';
+}
+function saveLearn(){if(learn)localStorage.setItem(LKEY(learn.noteId),JSON.stringify(learn))}
+function resumeLearn(){
+  const s=localStorage.getItem(LKEY($('quizNoteSel').value));
+  if(!s)return;
+  learn=JSON.parse(s);
+  renderLearn();
+}
+async function genLearn(){
   const note=notes.find(n=>n.id===$('quizNoteSel').value);
   if(!note){toast('Upload or create a note first');return}
   const count=$('quizCount').value;
@@ -524,45 +576,140 @@ async function genQuiz(){
   $('quizArea').innerHTML='';
   try{
     const text=await gemini(
-`Create exactly ${count} multiple-choice quiz questions from these study notes. Test understanding, not trivia.
+`Create exactly ${count} active-recall quiz items from these study notes. Each item tests one key concept, term, or fact.
 
 Return ONLY a JSON array in this exact shape:
-[{"q":"question text","options":["A","B","C","D"],"answer":0,"explain":"one-sentence explanation"}]
-"answer" is the index (0-3) of the correct option. Vary which index is correct.
+[{"q":"clear question testing understanding","answer":"the correct answer as a SHORT phrase (1-5 words, typeable from memory)","options":["four short plausible options"],"explain":"one-sentence explanation"}]
+
+Rules:
+- "answer" must appear EXACTLY (character-for-character) as one of the four "options".
+- Wrong options must be plausible and from the same topic.
+- Answers must be short enough for a student to type from memory.
 
 NOTES:
 ${note.body}`,{json:true});
-    quiz={items:parseJson(text),answered:0,correct:0,noteTitle:note.title};
-    renderQuiz();
+    const items=parseJson(text).map(it=>{
+      if(!it.options||!it.options.some(o=>o===it.answer)){it.options=it.options||[];it.options[0]=it.answer;while(it.options.length<4)it.options.push('—')}
+      return{q:it.q,answer:it.answer,options:it.options.slice(0,4),explain:it.explain||'',level:0,misses:0};
+    });
+    learn={noteId:note.id,noteTitle:note.title,items,queue:shuffle(items.map((_,i)=>i))};
+    saveLearn();onQuizNoteChange();renderLearn();
   }catch(err){toast('⚠ '+err.message,5000)}
-  finally{btn.disabled=false;btn.innerHTML='Generate Quiz'}
+  finally{btn.disabled=false;btn.innerHTML='Start Learning'}
 }
-function renderQuiz(){
-  const area=$('quizArea');
-  area.innerHTML=`<div id="scoreSlot"></div>`+quiz.items.map((it,i)=>`
-    <div class="q-card" id="q${i}">
-      <div class="qnum">Question ${i+1} of ${quiz.items.length}</div>
-      <div class="qtext">${esc(it.q)}</div>
-      ${it.options.map((o,j)=>`<button class="opt" onclick="answer(${i},${j})">${String.fromCharCode(65+j)}. ${esc(o)}</button>`).join('')}
-      <div class="explain" id="ex${i}"></div>
-    </div>`).join('');
+function learnProgressHTML(){
+  const n=learn.items.length;
+  const c0=learn.items.filter(i=>i.level===0).length;
+  const c1=learn.items.filter(i=>i.level===1).length;
+  const c2=n-c0-c1;
+  const pct=Math.round(learn.items.reduce((s,i)=>s+i.level,0)/(2*n)*100);
+  return`<div class="progress-wrap">
+    <div class="ptrack"><div class="pfill" style="width:${pct}%"></div></div>
+    <div class="legend">
+      <span><span class="chip" style="background:#e5484d"></span>Still learning <b>${c0}</b></span>
+      <span><span class="chip" style="background:#eab308"></span>Familiar <b>${c1}</b></span>
+      <span><span class="chip" style="background:#2f9e6e"></span>Mastered <b>${c2}</b></span>
+      <span style="margin-left:auto"><b>${pct}%</b> mastered · ${esc(learn.noteTitle)}</span>
+    </div>
+  </div>`;
 }
-function answer(qi,oi){
-  const it=quiz.items[qi];if(it.done)return;it.done=true;
-  quiz.answered++;if(oi===it.answer)quiz.correct++;
-  const card=$('q'+qi);
-  [...card.querySelectorAll('.opt')].forEach((b,j)=>{
-    b.disabled=true;
-    if(j===it.answer)b.classList.add('correct');
-    else if(j===oi)b.classList.add('wrong');
-  });
-  const ex=$('ex'+qi);ex.style.display='block';
-  ex.innerHTML=(oi===it.answer?'✅ Correct! ':'❌ Not quite. ')+esc(it.explain||'');
-  if(quiz.answered===quiz.items.length){
-    const pct=Math.round(quiz.correct/quiz.items.length*100);
-    $('scoreSlot').innerHTML=`<div class="score-banner"><div class="sc">${quiz.correct}/${quiz.items.length} — ${pct}%</div><div>${pct>=90?'🏆 Excellent!':pct>=70?'💪 Nice work — review the misses.':'📖 Keep studying — try the flashcards!'}</div></div>`;
-    $('scoreSlot').scrollIntoView({behavior:'smooth'});
+function nextLearnIdx(){
+  learn.queue=learn.queue.filter(i=>learn.items[i].level<2);
+  if(!learn.queue.length){
+    const rem=learn.items.map((it,i)=>i).filter(i=>learn.items[i].level<2);
+    learn.queue=shuffle(rem).sort((a,b)=>learn.items[a].level-learn.items[b].level);
   }
+  return learn.queue.length?learn.queue[0]:-1;
+}
+function renderLearn(){
+  if(!learn)return;
+  const idx=nextLearnIdx();
+  if(idx===-1){renderLearnDone();return}
+  const it=learn.items[idx];
+  const written=it.level===1;
+  let card;
+  if(written){
+    card=`<div class="q-card">
+      <span class="qbadge wr">✍️ Type from memory</span>
+      <div class="qtext">${esc(it.q)}</div>
+      <input class="learn-input" id="learnInput" placeholder="Type your answer…" autocomplete="off"
+        onkeydown="if(event.key==='Enter')submitWritten(${idx})">
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="submitWritten(${idx})">Answer</button>
+        <button class="btn btn-ghost" onclick="learnResult(${idx},false,'')">Don't know</button>
+      </div>
+      <div id="fbSlot"></div>
+    </div>`;
+  }else{
+    const opts=shuffle(it.options.map((o,j)=>o));
+    card=`<div class="q-card">
+      <span class="qbadge mc">📋 Multiple choice</span>
+      <div class="qtext">${esc(it.q)}</div>
+      <div id="optWrap">${opts.map(o=>`<button class="opt" onclick="submitMC(${idx},this)">${esc(o)}</button>`).join('')}</div>
+      <div id="fbSlot"></div>
+    </div>`;
+  }
+  $('quizArea').innerHTML=learnProgressHTML()+card;
+  if(written)setTimeout(()=>$('learnInput')?.focus(),50);
+}
+function submitMC(idx,btn){
+  const it=learn.items[idx];
+  const ok=btn.textContent===it.answer;
+  [...document.querySelectorAll('#optWrap .opt')].forEach(b=>{
+    b.disabled=true;
+    if(b.textContent===it.answer)b.classList.add('correct');
+    else if(b===btn&&!ok)b.classList.add('wrong');
+  });
+  learnResult(idx,ok,null,true);
+}
+function submitWritten(idx){
+  const it=learn.items[idx];
+  const given=$('learnInput').value;
+  $('learnInput').disabled=true;
+  learnResult(idx,isCorrectAnswer(given,it.answer),given);
+}
+function learnResult(idx,ok,given,fromMC){
+  const it=learn.items[idx];
+  if(ok){it.level++}
+  else{it.misses++;if(it.level>0)it.level--}
+  learn.queue.shift();
+  if(!ok&&!learn.queue.includes(idx))learn.queue.push(idx);
+  saveLearn();
+  const fb=ok
+    ?`<div class="fb good">✅ <b>Correct!</b> ${esc(it.explain)}</div>`
+    :`<div class="fb bad">❌ Correct answer: <b>${esc(it.answer)}</b>. ${esc(it.explain)}<br>It'll come back until you master it.</div>`;
+  const override=(!ok&&given!==null&&given!==''&&!fromMC)
+    ?`<button class="btn btn-ghost" onclick="overrideCorrect(${idx})">I was correct</button>`:'';
+  $('fbSlot').innerHTML=fb+`<div style="display:flex;gap:8px;margin-top:12px">
+    <button class="btn btn-primary" id="contBtn" onclick="renderLearn()">Continue →</button>${override}</div>`;
+  if($('learnInput'))$('learnInput').disabled=true;
+  document.querySelectorAll('#optWrap .opt').forEach(b=>b.disabled=true);
+  setTimeout(()=>$('contBtn')?.focus(),50);
+}
+function overrideCorrect(idx){
+  const it=learn.items[idx];
+  it.level=Math.min(2,it.level+2);it.misses=Math.max(0,it.misses-1);
+  learn.queue=learn.queue.filter(v=>v!==idx);
+  saveLearn();renderLearn();
+}
+function renderLearnDone(){
+  const total=learn.items.length;
+  const misses=learn.items.reduce((s,i)=>s+i.misses,0);
+  $('quizArea').innerHTML=learnProgressHTML()+`
+    <div class="score-banner">
+      <div class="sc">🎉 All ${total} concepts mastered!</div>
+      <div>${misses===0?'Flawless — not a single miss!':`You worked through ${misses} miss${misses===1?'':'es'} to get here. That's active recall doing its job.`}</div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:center">
+      <button class="btn btn-primary" onclick="restartLearn()">🔁 Study again</button>
+      <button class="btn btn-soft" onclick="switchView('cards')">🃏 Review as flashcards</button>
+    </div>`;
+  localStorage.removeItem(LKEY(learn.noteId));onQuizNoteChange();
+}
+function restartLearn(){
+  learn.items.forEach(it=>{it.level=0;it.misses=0});
+  learn.queue=shuffle(learn.items.map((_,i)=>i));
+  saveLearn();onQuizNoteChange();renderLearn();
 }
 
 /* ================= flashcards ================= */
@@ -624,6 +771,7 @@ function renderSidebar(){
   // note selects for quiz/cards
   const opts=notes.map(n=>`<option value="${n.id}">${esc(n.title)}</option>`).join('')||'<option value="">— no notes yet —</option>';
   $('quizNoteSel').innerHTML=opts;$('cardNoteSel').innerHTML=opts;
+  onQuizNoteChange();
 }
 function renderNote(){
   const n=cur();
