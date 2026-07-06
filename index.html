@@ -184,6 +184,11 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
 .link-row input:focus{border-color:var(--accent)}
 .or-divider{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;margin:14px 0;text-transform:uppercase;letter-spacing:.06em}
 .or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:var(--border)}
+.queue-item{display:flex;align-items:center;gap:9px;padding:8px 11px;border:1px solid var(--border);border-radius:9px;margin-bottom:6px;font-size:13px;background:var(--surface)}
+.queue-item .qi-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.queue-item .qi-x{color:var(--muted);font-size:15px;padding:2px 6px;border-radius:6px}
+.queue-item .qi-x:hover{color:var(--danger);background:var(--bg)}
+#queueList{margin:12px 0 2px}
 
 /* ---------- modal ---------- */
 .overlay{position:fixed;inset:0;background:rgba(16,20,32,.45);display:none;align-items:center;justify-content:center;z-index:50}
@@ -333,18 +338,18 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
 <!-- Upload modal -->
 <div class="overlay" id="uploadModal">
   <div class="modal">
-    <h3>Add a lecture</h3>
-    <p class="sub">Upload files (<b>.pptx, .pdf, .docx, .txt, .md</b> — one or multiple), or paste a <b>YouTube video</b> or <b>article link</b>. AI turns it into organized study notes.</p>
+    <h3>Add lecture material</h3>
+    <p class="sub">Stack up as much as you want — files (<b>.pptx, .pdf, .docx, .txt, .md</b>), <b>YouTube videos</b>, and <b>article links</b>. When you're done adding, hit <b>Process All</b> and AI combines everything into one set of study notes.</p>
     <div class="link-row">
-      <input id="linkInput" placeholder="🔗 Paste a YouTube or article link…" onkeydown="if(event.key==='Enter')processLink()">
-      <button class="btn btn-primary" id="linkBtn" onclick="processLink()">Process</button>
+      <input id="linkInput" placeholder="🔗 Paste a YouTube or article link…" onkeydown="if(event.key==='Enter')addLink()">
+      <button class="btn btn-soft" onclick="addLink()">＋ Add link</button>
     </div>
-    <div class="or-divider">or upload files</div>
     <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
       <div class="dz-icon">📄</div>
       <div><b>Click to browse</b> or drag & drop files here (multiple allowed)</div>
     </div>
     <input type="file" id="fileInput" accept=".pptx,.pdf,.docx,.txt,.md" multiple style="display:none" onchange="handleFiles(this.files)">
+    <div id="queueList"></div>
     <div class="field">
       <label>Summary style</label>
       <select id="sumStyle">
@@ -353,7 +358,11 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
         <option value="exam">Exam-focused (definitions, formulas, likely test points)</option>
       </select>
     </div>
-    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('uploadModal')">Cancel</button></div>
+    <div id="procStatus" class="sub" style="display:none;margin-bottom:8px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('uploadModal')">Cancel</button>
+      <button class="btn btn-primary" id="processAllBtn" onclick="processAll()" disabled>✨ Process All → Create Note</button>
+    </div>
   </div>
 </div>
 
@@ -426,17 +435,13 @@ function getModel(){return localStorage.getItem(LS_MODEL)||'gemini-2.5-flash'}
 function fmtDate(ts){return new Date(ts).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})}
 
 /* ================= gemini ================= */
-async function gemini(prompt,{json=false,ytUrl=null,urlContext=false,contents=null,system=null}={}) {
+async function gemini(prompt,{json=false,parts=null,urlContext=false,contents=null,system=null}={}) {
   const key=getKey();
   if(!key){openSettings();throw new Error('Please add your free Gemini API key in Settings first.')}
   let body;
   if(contents){body={contents}}
-  else{
-    const parts=[];
-    if(ytUrl)parts.push({file_data:{file_uri:ytUrl}});
-    parts.push({text:prompt});
-    body={contents:[{parts}]};
-  }
+  else if(parts){body={contents:[{parts}]}}
+  else{body={contents:[{parts:[{text:prompt}]}]}}
   body.generationConfig={temperature:0.4};
   if(json)body.generationConfig.responseMimeType='application/json';
   if(urlContext)body.tools=[{url_context:{}}];
@@ -514,53 +519,98 @@ async function extractDocx(file){
 }
 
 /* ================= upload & summarize ================= */
-function openUpload(){$('uploadModal').classList.add('open')}
+function openUpload(){renderQueue();$('uploadModal').classList.add('open')}
 function closeModal(id){$(id).classList.remove('open')}
 const dz=$('dropzone');
 dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag')});
 dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');if(e.dataTransfer.files.length)handleFiles(e.dataTransfer.files)});
 
-async function handleFiles(fileList){
-  const files=[...fileList];
-  if(!files.length)return;
+let uploadQueue=[];
+function handleFiles(fileList){
+  [...fileList].forEach(f=>uploadQueue.push({type:'file',file:f,name:f.name}));
   $('fileInput').value='';
+  renderQueue();
+}
+function addLink(){
+  let url=$('linkInput').value.trim();
+  if(!url){toast('Paste a link first');return}
+  if(!/^https?:\/\//i.test(url))url='https://'+url;
+  try{new URL(url)}catch(e){toast('That doesn\'t look like a valid link');return}
+  uploadQueue.push({type:isYouTube(url)?'yt':'article',url,name:url});
+  $('linkInput').value='';
+  renderQueue();
+}
+function removeQueued(i){uploadQueue.splice(i,1);renderQueue()}
+function renderQueue(){
+  const icons={file:'📄',yt:'▶️',article:'🌐'};
+  $('queueList').innerHTML=uploadQueue.map((it,i)=>`
+    <div class="queue-item">
+      <span>${icons[it.type]}</span>
+      <span class="qi-name" title="${esc(it.name)}">${esc(it.name)}</span>
+      <button class="qi-x" onclick="removeQueued(${i})" title="Remove">✕</button>
+    </div>`).join('');
+  const btn=$('processAllBtn');
+  btn.disabled=!uploadQueue.length;
+  btn.innerHTML=uploadQueue.length?`✨ Process All (${uploadQueue.length}) → Create Note`:'✨ Process All → Create Note';
+}
+function procStatus(msg){const el=$('procStatus');el.style.display=msg?'block':'none';el.innerHTML=msg?`<span class="spinner dark"></span> ${esc(msg)}`:''}
+async function processAll(){
+  if(!uploadQueue.length)return;
   if(!getKey()){closeModal('uploadModal');openSettings();toast('Add your Gemini API key first (Settings)');return}
-  const dzHTML=dz.innerHTML;
+  const btn=$('processAllBtn');btn.disabled=true;
   try{
-    let raw='';
-    for(let i=0;i<files.length;i++){
-      dz.innerHTML=`<div class="spinner dark"></div><div style="margin-top:8px">Reading file ${i+1} of ${files.length}: ${esc(files[i].name)}…</div>`;
-      const t=(await extractText(files[i])).trim();
-      if(t)raw+=`\n\n===== FILE ${i+1}: ${files[i].name} =====\n${t}`;
+    const parts=[];let textBlob='';let unfetched=[];
+    const counts={file:0,yt:0,article:0};
+    for(let i=0;i<uploadQueue.length;i++){
+      const it=uploadQueue[i];counts[it.type]++;
+      if(it.type==='file'){
+        procStatus(`Reading file ${it.name}…`);
+        const t=(await extractText(it.file)).trim();
+        if(t)textBlob+=`\n\n===== FILE: ${it.name} =====\n${t}`;
+      }else if(it.type==='yt'){
+        parts.push({file_data:{file_uri:it.url}});
+      }else{
+        procStatus(`Fetching article ${it.name}…`);
+        try{
+          const r=await fetch('https://r.jina.ai/'+it.url);
+          if(!r.ok)throw 0;
+          let raw=await r.text();
+          if(raw.length>120000)raw=raw.slice(0,120000)+'\n[...truncated]';
+          textBlob+=`\n\n===== ARTICLE: ${it.url} =====\n${raw}`;
+        }catch(e){unfetched.push(it.url)}
+      }
     }
-    raw=raw.trim();
-    if(!raw||raw.length<40)throw new Error('Could not find readable text in these files (scanned/image-only files?).');
-    if(raw.length>400000)raw=raw.slice(0,400000)+'\n[...truncated]';
-    dz.innerHTML=`<div class="spinner dark"></div><div style="margin-top:8px">AI is summarizing ${files.length>1?files.length+' lectures':'your lecture'}…</div>`;
-    const styleTxt=getStyleTxt();
-    const names=files.map(f=>f.name).join(', ');
-    const multi=files.length>1;
-    const md=await gemini(
-`You are an expert note-taker helping a college student study. Below is the raw extracted text of ${multi?files.length+' lecture files':'a lecture'} (${names}). Rewrite ${multi?'them as ONE unified set of':'it as'} ${styleTxt}.
+    if(textBlob.length>400000)textBlob=textBlob.slice(0,400000)+'\n[...truncated]';
+    procStatus(`AI is combining ${uploadQueue.length} source${uploadQueue.length>1?'s':''} into one set of notes… ${counts.yt?'(videos can take a minute)':''}`);
+    const srcDesc=[counts.file?`${counts.file} file(s)`:'',counts.yt?`${counts.yt} video(s)`:'',counts.article?`${counts.article} article(s)`:''].filter(Boolean).join(', ');
+    let prompt=`You are an expert note-taker helping a college student study. You are given multiple sources for the same course: ${srcDesc}.`;
+    if(counts.yt)prompt+=` Watch the attached video(s) fully.`;
+    if(unfetched.length)prompt+=` Also read these article URLs: ${unfetched.join(' , ')}`;
+    prompt+=`
+
+Combine ALL sources into ONE unified set of ${getStyleTxt()}.
 
 Rules:
-- Output ONLY clean Markdown (no preamble, no code fences around the whole thing).
+- Output ONLY clean Markdown (no preamble, no code fences around the whole output).
 - Start with a single line: "# <a short descriptive title covering the material>".
-${multi?'- Merge overlapping topics across files into single sections; use a "## <topic>" heading per major topic.':'- Organize logically by topic, not by slide/page.'}
-- Preserve all important concepts, terms, formulas, and examples.
+- Merge overlapping topics across sources into single sections; use a "## <topic>" heading per major topic.
+- Preserve all important concepts, terms, formulas, and examples from EVERY source.`;
+    if(textBlob)prompt+=`
 
-LECTURE TEXT:
-${raw}`);
-    const titleMatch=md.match(/^#\s+(.+)$/m);
-    const title=titleMatch?titleMatch[1].trim():files[0].name.replace(/\.[^.]+$/,'');
-    const note={id:uid(),title,body:md,created:Date.now(),source:names};
+SOURCE TEXT:
+${textBlob}`;
+    parts.push({text:prompt});
+    const md=await gemini(null,{parts,urlContext:unfetched.length>0});
+    const m=md.match(/^#\s+(.+)$/m);
+    const note={id:uid(),title:m?m[1].trim():'Combined lecture notes',body:md.trim(),created:Date.now(),source:srcDesc};
     notes.unshift(note);persist();
+    uploadQueue=[];renderQueue();procStatus('');
     closeModal('uploadModal');
     currentId=note.id;renderSidebar();renderNote();switchView('notes');
-    toast('✅ Lecture summarized into notes!');
-  }catch(err){toast('⚠ '+err.message,5000)}
-  finally{dz.innerHTML=dzHTML}
+    toast('✅ All sources combined into one note!');
+  }catch(err){procStatus('');toast('⚠ '+err.message,6000)}
+  finally{btn.disabled=!uploadQueue.length;renderQueue()}
 }
 
 /* ================= link processing (YouTube & articles) ================= */
@@ -572,60 +622,6 @@ function getStyleTxt(){
   }[$('sumStyle').value];
 }
 const isYouTube=u=>/(?:youtube\.com\/(?:watch|shorts|live|embed)|youtu\.be\/)/.test(u);
-const noteRules=`Rules:
-- Output ONLY clean Markdown (no preamble, no code fences around the whole thing).
-- Start with a single line: "# <a short descriptive title>".
-- Preserve all important concepts, terms, formulas, and examples.
-- Organize logically by topic.`;
-async function processLink(){
-  let url=$('linkInput').value.trim();
-  if(!url){toast('Paste a link first');return}
-  if(!/^https?:\/\//i.test(url))url='https://'+url;
-  if(!getKey()){closeModal('uploadModal');openSettings();toast('Add your Gemini API key first (Settings)');return}
-  const btn=$('linkBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';
-  try{
-    const styleTxt=getStyleTxt();
-    let md,srcLabel;
-    if(isYouTube(url)){
-      srcLabel='YouTube video';
-      md=await gemini(
-`You are an expert note-taker helping a college student study. Watch this lecture video and rewrite its content as ${styleTxt}.
-
-${noteRules}`,{ytUrl:url});
-    }else{
-      srcLabel=new URL(url).hostname;
-      try{
-        md=await gemini(
-`You are an expert note-taker helping a college student study. Read the article at this URL: ${url}
-
-Rewrite its content as ${styleTxt}.
-
-${noteRules}`,{urlContext:true});
-        if(!md||md.length<200)throw new Error('empty');
-      }catch(e){
-        const r=await fetch('https://r.jina.ai/'+url);
-        if(!r.ok)throw new Error('Could not read that page — it may be paywalled or blocked.');
-        let raw=await r.text();
-        if(raw.length>150000)raw=raw.slice(0,150000)+'\n[...truncated]';
-        md=await gemini(
-`You are an expert note-taker helping a college student study. Below is the extracted text of a web article. Rewrite it as ${styleTxt}. Ignore navigation menus, ads, and unrelated page content.
-
-${noteRules}
-
-ARTICLE TEXT:
-${raw}`);
-      }
-    }
-    const m=md.match(/^#\s+(.+)$/m);
-    const note={id:uid(),title:m?m[1].trim():srcLabel,body:md.trim(),created:Date.now(),source:srcLabel};
-    notes.unshift(note);persist();
-    $('linkInput').value='';
-    closeModal('uploadModal');
-    currentId=note.id;renderSidebar();renderNote();switchView('notes');
-    toast('✅ Link turned into notes!');
-  }catch(err){toast('⚠ '+err.message,6000)}
-  finally{btn.disabled=false;btn.innerHTML='Process'}
-}
 
 /* ================= notes CRUD ================= */
 function newNote(){
