@@ -14,6 +14,20 @@
   --accent:#4f6df5; --accent-soft:#eef1fe; --accent-hover:#3d5ae8; --danger:#e5484d;
   --green:#2f9e6e; --radius:12px; --shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
 }
+body.dark{
+  --bg:#12141c; --surface:#1a1e2a; --border:#2a2f40; --text:#e8eaf2; --muted:#9299ad;
+  --accent:#6e87ff; --accent-soft:#232b4d; --accent-hover:#8399ff;
+  --shadow:0 1px 3px rgba(0,0,0,.35),0 1px 2px rgba(0,0,0,.25);
+}
+body.dark .btn-primary{color:#fff}
+body.dark .btn-soft:hover{background:#2b3560}
+body.dark .opt.correct{background:#153327;border-color:#2f9e6e}
+body.dark .opt.wrong{background:#3a1d1f;border-color:#e5484d}
+body.dark .icon-btn.danger:hover{background:#3a1d1f;border-color:#5c2a2c}
+body.dark .dropzone{border-color:#3a4158}
+body.dark .md pre{background:#0d0f16}
+body.dark #toast{background:#e8eaf2;color:#12141c}
+body.dark ::-webkit-scrollbar-thumb{background:#333a4f}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
 button{font-family:inherit;cursor:pointer;border:none;background:none}
@@ -175,7 +189,10 @@ input,textarea,select{font-family:inherit}
         <button class="tab" data-view="quiz" onclick="switchView('quiz')">❓ Quiz</button>
         <button class="tab" data-view="cards" onclick="switchView('cards')">🃏 Flashcards</button>
       </div>
-      <div class="status-pill" id="apiStatus"><span class="dot"></span>No API key</div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="status-pill" id="apiStatus"><span class="dot"></span>No API key</div>
+        <button class="icon-btn" id="themeBtn" title="Toggle light / dark mode" onclick="toggleTheme()">🌙</button>
+      </div>
     </div>
 
     <div class="content">
@@ -247,13 +264,13 @@ input,textarea,select{font-family:inherit}
 <!-- Upload modal -->
 <div class="overlay" id="uploadModal">
   <div class="modal">
-    <h3>Upload a lecture</h3>
-    <p class="sub">Supported: <b>.pptx, .pdf, .docx, .txt, .md</b> — the file is read entirely in your browser, then AI summarizes it into study notes.</p>
+    <h3>Upload lecture(s)</h3>
+    <p class="sub">Supported: <b>.pptx, .pdf, .docx, .txt, .md</b> — select <b>one or multiple files</b>; they're read entirely in your browser, then AI combines and summarizes them into one set of study notes.</p>
     <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
       <div class="dz-icon">📄</div>
-      <div><b>Click to browse</b> or drag & drop a file here</div>
+      <div><b>Click to browse</b> or drag & drop files here (multiple allowed)</div>
     </div>
-    <input type="file" id="fileInput" accept=".pptx,.pdf,.docx,.txt,.md" style="display:none" onchange="handleFile(this.files[0])">
+    <input type="file" id="fileInput" accept=".pptx,.pdf,.docx,.txt,.md" multiple style="display:none" onchange="handleFiles(this.files)">
     <div class="field">
       <label>Summary style</label>
       <select id="sumStyle">
@@ -394,39 +411,47 @@ function closeModal(id){$(id).classList.remove('open')}
 const dz=$('dropzone');
 dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag')});
 dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
-dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');if(e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0])});
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');if(e.dataTransfer.files.length)handleFiles(e.dataTransfer.files)});
 
-async function handleFile(file){
-  if(!file)return;
+async function handleFiles(fileList){
+  const files=[...fileList];
+  if(!files.length)return;
   $('fileInput').value='';
-  if(!getKey()){closeModal('uploadModal');openSettings();toast('Add your free Gemini API key first (Settings)');return}
+  if(!getKey()){closeModal('uploadModal');openSettings();toast('Add your Gemini API key first (Settings)');return}
   const dzHTML=dz.innerHTML;
   try{
-    dz.innerHTML='<div class="spinner dark"></div><div style="margin-top:8px">Reading file…</div>';
-    let raw=(await extractText(file)).trim();
-    if(!raw||raw.length<40)throw new Error('Could not find readable text in this file (is it a scanned/image-only file?).');
-    if(raw.length>150000)raw=raw.slice(0,150000)+'\n[...truncated]';
-    dz.innerHTML='<div class="spinner dark"></div><div style="margin-top:8px">AI is summarizing your lecture…</div>';
+    let raw='';
+    for(let i=0;i<files.length;i++){
+      dz.innerHTML=`<div class="spinner dark"></div><div style="margin-top:8px">Reading file ${i+1} of ${files.length}: ${esc(files[i].name)}…</div>`;
+      const t=(await extractText(files[i])).trim();
+      if(t)raw+=`\n\n===== FILE ${i+1}: ${files[i].name} =====\n${t}`;
+    }
+    raw=raw.trim();
+    if(!raw||raw.length<40)throw new Error('Could not find readable text in these files (scanned/image-only files?).');
+    if(raw.length>400000)raw=raw.slice(0,400000)+'\n[...truncated]';
+    dz.innerHTML=`<div class="spinner dark"></div><div style="margin-top:8px">AI is summarizing ${files.length>1?files.length+' lectures':'your lecture'}…</div>`;
     const style=$('sumStyle').value;
     const styleTxt={
       detailed:'detailed, well-organized study notes with clear headings (##), bullet points, **bolded key terms**, and definitions',
       concise:'a concise high-level summary with short sections and brief bullet points',
       exam:'exam-focused study notes emphasizing definitions, formulas, processes, and points likely to be tested, with headings and bullets'
     }[style];
+    const names=files.map(f=>f.name).join(', ');
+    const multi=files.length>1;
     const md=await gemini(
-`You are an expert note-taker helping a college student study. Below is the raw extracted text of a lecture titled "${file.name}". Rewrite it as ${styleTxt}.
+`You are an expert note-taker helping a college student study. Below is the raw extracted text of ${multi?files.length+' lecture files':'a lecture'} (${names}). Rewrite ${multi?'them as ONE unified set of':'it as'} ${styleTxt}.
 
 Rules:
 - Output ONLY clean Markdown (no preamble, no code fences around the whole thing).
-- Start with a single line: "# <a short descriptive title for this lecture>".
+- Start with a single line: "# <a short descriptive title covering the material>".
+${multi?'- Merge overlapping topics across files into single sections; use a "## <topic>" heading per major topic.':'- Organize logically by topic, not by slide/page.'}
 - Preserve all important concepts, terms, formulas, and examples.
-- Organize logically by topic, not by slide/page.
 
 LECTURE TEXT:
 ${raw}`);
     const titleMatch=md.match(/^#\s+(.+)$/m);
-    const title=titleMatch?titleMatch[1].trim():file.name.replace(/\.[^.]+$/,'');
-    const note={id:uid(),title,body:md,created:Date.now(),source:file.name};
+    const title=titleMatch?titleMatch[1].trim():files[0].name.replace(/\.[^.]+$/,'');
+    const note={id:uid(),title,body:md,created:Date.now(),source:names};
     notes.unshift(note);persist();
     closeModal('uploadModal');
     currentId=note.id;renderSidebar();renderNote();switchView('notes');
@@ -634,9 +659,21 @@ function updateStatus(){
 }
 document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open')}));
 
+/* ================= theme ================= */
+const LS_THEME='sf_theme';
+function applyTheme(t){
+  document.body.classList.toggle('dark',t==='dark');
+  $('themeBtn').textContent=t==='dark'?'☀️':'🌙';
+}
+function toggleTheme(){
+  const t=document.body.classList.contains('dark')?'light':'dark';
+  localStorage.setItem(LS_THEME,t);applyTheme(t);
+}
+
 /* ================= init ================= */
 currentId=notes[0]?.id||null;
 renderSidebar();renderNote();updateStatus();
+applyTheme(localStorage.getItem(LS_THEME)||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));
 </script>
 </body>
 </html>
