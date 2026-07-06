@@ -31,7 +31,9 @@ body.dark ::-webkit-scrollbar-thumb{background:#333a4f}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
 button{font-family:inherit;cursor:pointer;border:none;background:none}
-input,textarea,select{font-family:inherit}
+input,textarea,select{font-family:inherit;background:var(--surface);color:var(--text)}
+option{background:var(--surface);color:var(--text)}
+::placeholder{color:var(--muted);opacity:1}
 
 /* ---------- layout ---------- */
 .app{display:flex;height:100vh}
@@ -98,6 +100,8 @@ input,textarea,select{font-family:inherit}
 .md pre{background:#1e2230;color:#e6e9f2;padding:14px 16px;border-radius:10px;overflow-x:auto;margin:10px 0}
 .md pre code{background:none;color:inherit}
 .md blockquote{border-left:3px solid var(--accent);padding-left:14px;color:var(--muted);margin:10px 0}
+.md a{color:var(--accent)}
+#noteEditor{background:var(--surface);color:var(--text)}
 .md table{border-collapse:collapse;margin:10px 0;width:100%}
 .md th,.md td{border:1px solid var(--border);padding:7px 10px;text-align:left;font-size:14px}
 .md th{background:var(--bg)}
@@ -191,6 +195,7 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
     <div class="side-actions">
       <button class="btn btn-primary" onclick="openUpload()">⬆ Upload Lecture</button>
       <button class="btn btn-soft" onclick="newNote()">＋ New Blank Note</button>
+      <button class="btn btn-ghost" onclick="openCombine()">🧩 Combine into Study Guide</button>
     </div>
     <div class="notes-label">My Notes</div>
     <div class="note-list" id="noteList"></div>
@@ -300,6 +305,30 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
       </select>
     </div>
     <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('uploadModal')">Cancel</button></div>
+  </div>
+</div>
+
+<!-- Combine modal -->
+<div class="overlay" id="combineModal">
+  <div class="modal">
+    <h3>🧩 Combine notes into a study guide</h3>
+    <p class="sub">Select the notes to combine. AI will merge them into one organized master study guide — perfect for a unit test or final exam. The guide becomes a regular note, so you can run Learn mode and flashcards on it too.</p>
+    <div class="field">
+      <label>Notes to combine</label>
+      <div id="combineList" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:9px;padding:6px"></div>
+    </div>
+    <div class="field">
+      <label>Guide type</label>
+      <select id="combineType">
+        <option value="unit" selected>Unit test study guide (focused, key concepts & terms)</option>
+        <option value="final">Final exam master guide (comprehensive, cross-topic connections)</option>
+        <option value="merge">Just merge notes (no AI — stitch them together as-is)</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('combineModal')">Cancel</button>
+      <button class="btn btn-primary" id="combineBtn" onclick="genCombine()">Create Study Guide</button>
+    </div>
   </div>
 </div>
 
@@ -786,6 +815,57 @@ function switchView(v){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   $('view-'+v).classList.add('active');
+}
+
+/* ================= combine into study guide ================= */
+function openCombine(){
+  if(notes.length<2){toast('You need at least 2 notes to combine');return}
+  $('combineList').innerHTML=notes.map(n=>`
+    <label style="display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:7px;cursor:pointer;font-size:13.5px">
+      <input type="checkbox" class="cmb" value="${n.id}"> <span>${esc(n.title)}</span>
+    </label>`).join('');
+  $('combineModal').classList.add('open');
+}
+async function genCombine(){
+  const ids=[...document.querySelectorAll('.cmb:checked')].map(c=>c.value);
+  if(ids.length<2){toast('Select at least 2 notes');return}
+  const sel=notes.filter(n=>ids.includes(n.id));
+  const type=$('combineType').value;
+  const btn=$('combineBtn');
+  let combined=sel.map(n=>`\n\n===== NOTE: ${n.title} =====\n${n.body}`).join('').trim();
+  try{
+    let body,title;
+    if(type==='merge'){
+      title='Merged: '+sel.map(n=>n.title).join(' + ').slice(0,80);
+      body=`# ${title}\n`+sel.map(n=>`\n---\n\n${n.body}`).join('\n');
+    }else{
+      if(!getKey()){closeModal('combineModal');openSettings();toast('Add your Gemini API key first (Settings)');return}
+      btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Building guide…';
+      if(combined.length>400000)combined=combined.slice(0,400000)+'\n[...truncated]';
+      const spec=type==='final'
+        ?`a COMPREHENSIVE final exam master study guide. Include: a brief "Big Picture" overview connecting all topics; a section per major topic with key concepts, definitions, formulas and examples; a "Connections Across Topics" section; a "Key Terms Glossary"; and a final "Exam Checklist" of the most testable points.`
+        :`a focused unit test study guide. Include: a section per major topic with the key concepts, **bolded terms** with definitions, formulas and examples; and a final "Most Likely Test Points" checklist.`;
+      body=await gemini(
+`You are helping a college student prepare for an exam. Below are ${sel.length} sets of lecture notes. Combine them into ${spec}
+
+Rules:
+- Output ONLY clean Markdown (no preamble, no code fences around the whole output).
+- Start with a single line: "# <descriptive study guide title>".
+- Merge overlapping content — do not repeat the same concept twice.
+- Preserve every important concept, term, formula, and example from ALL notes.
+
+NOTES:
+${combined}`);
+      const m=body.match(/^#\s+(.+)$/m);
+      title=m?m[1].trim():'Study Guide';
+    }
+    const note={id:uid(),title,body,created:Date.now(),source:`study guide from ${sel.length} notes`};
+    notes.unshift(note);persist();
+    closeModal('combineModal');
+    currentId=note.id;renderSidebar();renderNote();switchView('notes');
+    toast('📖 Study guide created!');
+  }catch(err){toast('⚠ '+err.message,5000)}
+  finally{btn.disabled=false;btn.innerHTML='Create Study Guide'}
 }
 
 /* ================= settings ================= */
