@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <style>
 :root{
   --bg:#f7f8fa; --surface:#ffffff; --border:#e6e8ee; --text:#1a1d26; --muted:#6b7280;
@@ -101,6 +102,7 @@ option{background:var(--surface);color:var(--text)}
 .md pre code{background:none;color:inherit}
 .md blockquote{border-left:3px solid var(--accent);padding-left:14px;color:var(--muted);margin:10px 0}
 .md a{color:var(--accent)}
+.md img{max-width:100%;border-radius:9px;margin:8px 0;display:block;border:1px solid var(--border)}
 #noteEditor{background:var(--surface);color:var(--text)}
 .md table{border-collapse:collapse;margin:10px 0;width:100%}
 .md th,.md td{border:1px solid var(--border);padding:7px 10px;text-align:left;font-size:14px}
@@ -227,8 +229,9 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
     </div>
     <div class="notes-label">My Notes</div>
     <div class="note-list" id="noteList"></div>
-    <div class="side-footer">
-      <button class="btn btn-ghost" style="width:100%" onclick="openSettings()">⚙ Settings & API Key</button>
+    <div class="side-footer" style="display:flex;gap:8px">
+      <button class="btn btn-ghost" style="flex:1" onclick="openBackup()">💾 Backup</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="openSettings()">⚙ Settings</button>
     </div>
   </aside>
 
@@ -262,6 +265,7 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
           <div class="note-header">
             <input id="noteTitle" placeholder="Untitled note" onchange="saveTitle()">
             <div class="note-tools">
+              <button class="icon-btn" title="Download this note as PDF" onclick="exportPdf(false)">⬇</button>
               <button class="icon-btn" id="editToggle" title="Edit raw markdown" onclick="toggleEdit()">✏️</button>
               <button class="icon-btn danger" title="Delete note" onclick="deleteNote()">🗑</button>
             </div>
@@ -366,6 +370,22 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
   </div>
 </div>
 
+<!-- Backup modal -->
+<div class="overlay" id="backupModal">
+  <div class="modal">
+    <h3>💾 Backup & Export</h3>
+    <p class="sub">Your notes live only in this browser. Export a backup file to keep them safe, restore after clearing browser data, or move to another computer.</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <button class="btn btn-primary" onclick="exportBackup()">⬇ Export backup file (.json — re-importable)</button>
+      <button class="btn btn-soft" onclick="document.getElementById('importInput').click()">⬆ Import backup file</button>
+      <input type="file" id="importInput" accept=".json,application/json" style="display:none" onchange="importBackup(this.files[0])">
+      <button class="btn btn-ghost" onclick="exportPdf(true)">📄 Download ALL notes as one PDF</button>
+    </div>
+    <p class="sub" style="margin-top:14px;margin-bottom:0">Tip: the ⬇ button at the top of any note downloads just that note as a PDF.</p>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('backupModal')">Close</button></div>
+  </div>
+</div>
+
 <!-- Combine modal -->
 <div class="overlay" id="combineModal">
   <div class="modal">
@@ -429,7 +449,7 @@ const $ = id => document.getElementById(id);
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 function toast(msg,ms=3000){const t=$('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',ms)}
-function persist(){localStorage.setItem(LS_NOTES,JSON.stringify(notes))}
+function persist(){try{localStorage.setItem(LS_NOTES,JSON.stringify(notes))}catch(e){toast('⚠ Browser storage is full — export a backup (💾) and delete old or image-heavy notes.',7000)}}
 function getKey(){return localStorage.getItem(LS_KEY)||''}
 function getModel(){return localStorage.getItem(LS_MODEL)||'gemini-2.5-flash'}
 function fmtDate(ts){return new Date(ts).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})}
@@ -469,11 +489,30 @@ function parseJson(text){
 /* ================= file extraction ================= */
 async function extractText(file){
   const name=file.name.toLowerCase();
-  if(name.endsWith('.txt')||name.endsWith('.md'))return await file.text();
-  if(name.endsWith('.pdf'))return await extractPdf(file);
+  if(name.endsWith('.txt')||name.endsWith('.md'))return{text:await file.text(),images:[]};
+  if(name.endsWith('.pdf'))return{text:await extractPdf(file),images:[]};
   if(name.endsWith('.pptx'))return await extractPptx(file);
-  if(name.endsWith('.docx'))return await extractDocx(file);
+  if(name.endsWith('.docx'))return{text:await extractDocx(file),images:[]};
   throw new Error('Unsupported file type. Use PPTX, PDF, DOCX, TXT, or MD.');
+}
+function compressImage(dataUrl){
+  return new Promise(res=>{
+    const img=new Image();
+    img.onload=()=>{
+      try{
+        const scale=Math.min(1,900/img.width);
+        const c=document.createElement('canvas');
+        c.width=Math.max(1,Math.round(img.width*scale));
+        c.height=Math.max(1,Math.round(img.height*scale));
+        const g=c.getContext('2d');
+        g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);
+        g.drawImage(img,0,0,c.width,c.height);
+        res(c.toDataURL('image/jpeg',0.72));
+      }catch(e){res(null)}
+    };
+    img.onerror=()=>res(null);
+    img.src=dataUrl;
+  });
 }
 async function extractPdf(file){
   const buf=await file.arrayBuffer();
@@ -492,20 +531,41 @@ async function extractPptx(file){
     .filter(f=>/^ppt\/slides\/slide\d+\.xml$/.test(f))
     .sort((a,b)=>parseInt(a.match(/\d+/g).pop())-parseInt(b.match(/\d+/g).pop()));
   if(!slides.length)throw new Error('No slides found in this PPTX.');
-  let out='';
+  let out='';const images=[];
   for(let i=0;i<slides.length;i++){
     const xml=await zip.files[slides[i]].async('string');
+    const num=slides[i].match(/\d+/g).pop();
     const texts=[...xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map(m=>m[1]);
-    out+=`\n--- Slide ${i+1} ---\n`+texts.join('\n');
+    out+=`\n--- Slide ${num} ---\n`+texts.join('\n');
     // include speaker notes if present
-    const notesFile=`ppt/notesSlides/notesSlide${i+1}.xml`;
+    const notesFile=`ppt/notesSlides/notesSlide${num}.xml`;
     if(zip.files[notesFile]){
       const nxml=await zip.files[notesFile].async('string');
       const nt=[...nxml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map(m=>m[1]).join(' ').trim();
       if(nt)out+=`\n[Speaker notes: ${nt}]`;
     }
+    // extract embedded images (diagrams, charts, figures)
+    const relsFile=`ppt/slides/_rels/slide${num}.xml.rels`;
+    if(zip.files[relsFile]&&images.length<12){
+      const rels=await zip.files[relsFile].async('string');
+      const relMap={};
+      [...rels.matchAll(/<Relationship[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"/g)].forEach(m=>relMap[m[1]]=m[2]);
+      const embeds=[...new Set([...xml.matchAll(/r:embed="([^"]+)"/g)].map(m=>m[1]))];
+      for(const id of embeds.slice(0,3)){
+        if(images.length>=12)break;
+        let tgt=relMap[id];if(!tgt)continue;
+        tgt='ppt/'+tgt.replace(/^(\.\.\/)+/,'');
+        const f=zip.files[tgt];if(!f)continue;
+        const ext=tgt.split('.').pop().toLowerCase();
+        if(!['png','jpg','jpeg','gif','bmp','webp'].includes(ext))continue;
+        const b64=await f.async('base64');
+        if(b64.length<4000||b64.length>6000000)continue; // skip tiny icons & huge files
+        const dataUrl=await compressImage(`data:image/${ext==='jpg'?'jpeg':ext};base64,${b64}`);
+        if(dataUrl)images.push({slide:parseInt(num),dataUrl});
+      }
+    }
   }
-  return out;
+  return{text:out,images};
 }
 async function extractDocx(file){
   const zip=await JSZip.loadAsync(file);
@@ -560,14 +620,16 @@ async function processAll(){
   if(!getKey()){closeModal('uploadModal');openSettings();toast('Add your Gemini API key first (Settings)');return}
   const btn=$('processAllBtn');btn.disabled=true;
   try{
-    const parts=[];let textBlob='';let unfetched=[];
+    const parts=[];let textBlob='';let unfetched=[];const slideImgs=[];
     const counts={file:0,yt:0,article:0};
     for(let i=0;i<uploadQueue.length;i++){
       const it=uploadQueue[i];counts[it.type]++;
       if(it.type==='file'){
         procStatus(`Reading file ${it.name}…`);
-        const t=(await extractText(it.file)).trim();
+        const ex=await extractText(it.file);
+        const t=ex.text.trim();
         if(t)textBlob+=`\n\n===== FILE: ${it.name} =====\n${t}`;
+        ex.images.forEach(im=>{if(slideImgs.length<12)slideImgs.push({...im,src:it.name})});
       }else if(it.type==='yt'){
         parts.push({file_data:{file_uri:it.url}});
       }else{
@@ -596,14 +658,24 @@ Rules:
 - Start with a single line: "# <a short descriptive title covering the material>".
 - Merge overlapping topics across sources into single sections; use a "## <topic>" heading per major topic.
 - Preserve all important concepts, terms, formulas, and examples from EVERY source.`;
+    if(slideImgs.length)prompt+=`
+- ${slideImgs.length} image(s) extracted from the slides are attached, each labeled [IMAGE_n]. Where an image is educationally relevant (diagram, chart, graph, figure, annotated screenshot), insert the placeholder {{IMAGE_n}} on its own line at the appropriate point in the notes. SKIP logos, decorative photos, and template graphics — do not insert placeholders for those. Only use numbers of images that were actually attached.`;
     if(textBlob)prompt+=`
 
 SOURCE TEXT:
 ${textBlob}`;
+    slideImgs.forEach((im,j)=>{
+      parts.push({text:`[IMAGE_${j+1} — from slide ${im.slide} of ${im.src}]`});
+      parts.push({inline_data:{mime_type:'image/jpeg',data:im.dataUrl.split(',')[1]}});
+    });
     parts.push({text:prompt});
-    const md=await gemini(null,{parts,urlContext:unfetched.length>0});
+    let md=(await gemini(null,{parts,urlContext:unfetched.length>0})).trim();
+    if(slideImgs.length)md=md.replace(/\{\{IMAGE[_ ]?(\d+)\}\}/gi,(mm,nn)=>{
+      const im=slideImgs[parseInt(nn)-1];
+      return im?`\n\n![Figure — slide ${im.slide} of ${im.src}](${im.dataUrl})\n\n`:'';
+    });
     const m=md.match(/^#\s+(.+)$/m);
-    const note={id:uid(),title:m?m[1].trim():'Combined lecture notes',body:md.trim(),created:Date.now(),source:srcDesc};
+    const note={id:uid(),title:m?m[1].trim():'Combined lecture notes',body:md,created:Date.now(),source:srcDesc};
     notes.unshift(note);persist();
     uploadQueue=[];renderQueue();procStatus('');
     closeModal('uploadModal');
@@ -1028,6 +1100,67 @@ ${combined}`);
     toast('📖 Study guide created!');
   }catch(err){toast('⚠ '+err.message,5000)}
   finally{btn.disabled=false;btn.innerHTML='Create Study Guide'}
+}
+
+/* ================= backup & PDF export ================= */
+function openBackup(){$('backupModal').classList.add('open')}
+function exportBackup(){
+  const blob=new Blob([JSON.stringify({app:'studyflow',version:1,exported:new Date().toISOString(),notes},null,1)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`studyflow-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();URL.revokeObjectURL(a.href);
+  toast('✅ Backup downloaded — keep it somewhere safe!');
+}
+function importBackup(file){
+  if(!file)return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const d=JSON.parse(rd.result);
+      const arr=Array.isArray(d)?d:d.notes;
+      if(!Array.isArray(arr))throw 0;
+      let added=0;
+      arr.forEach(n=>{
+        if(n&&n.id&&typeof n.body==='string'&&!notes.some(x=>x.id===n.id)){
+          notes.push({id:n.id,title:n.title||'Untitled note',body:n.body,created:n.created||Date.now(),source:n.source||null});
+          added++;
+        }
+      });
+      notes.sort((a,b)=>b.created-a.created);
+      persist();currentId=notes[0]?.id||null;renderSidebar();renderNote();
+      toast(added?`✅ Imported ${added} note${added>1?'s':''}!`:'No new notes in that backup (already imported?)');
+    }catch(e){toast('⚠ That file isn\'t a valid StudyFlow backup')}
+  };
+  rd.readAsText(file);
+  $('importInput').value='';
+}
+async function exportPdf(all){
+  const sel=all?[...notes]:[cur()].filter(Boolean);
+  if(!sel.length){toast('No notes to export');return}
+  toast('📄 Building PDF… this can take a few seconds');
+  const el=document.createElement('div');
+  el.style.cssText='position:fixed;left:-10000px;top:0;width:730px;background:#fff;color:#111;padding:28px;font-family:Segoe UI,Arial,sans-serif;line-height:1.6;font-size:13px';
+  el.innerHTML=sel.map((n,i)=>
+    `<div style="${i?'page-break-before:always;':''}">
+      <div style="font-size:11px;color:#888;margin-bottom:4px">StudyFlow · ${fmtDate(n.created)}${n.source?' · '+esc(n.source):''}</div>
+      ${marked.parse(n.body)}
+    </div>`).join('');
+  el.querySelectorAll('img').forEach(im=>{im.style.maxWidth='100%';im.style.pageBreakInside='avoid'});
+  el.querySelectorAll('pre').forEach(p=>{p.style.background='#f2f3f7';p.style.color='#111';p.style.padding='10px';p.style.borderRadius='6px';p.style.whiteSpace='pre-wrap'});
+  document.body.appendChild(el);
+  try{
+    const fname=(all?'studyflow-all-notes':sel[0].title.replace(/[^\w\- ]/g,'').trim().slice(0,60)||'note')+'.pdf';
+    await html2pdf().set({
+      margin:[12,12,14,12],filename:fname,
+      image:{type:'jpeg',quality:0.92},
+      html2canvas:{scale:2,useCORS:true},
+      jsPDF:{unit:'mm',format:'a4'},
+      pagebreak:{mode:['css','legacy']}
+    }).from(el).save();
+    toast('✅ PDF downloaded!');
+  }catch(e){toast('⚠ PDF failed: '+e.message,5000)}
+  finally{el.remove()}
 }
 
 /* ================= settings ================= */
