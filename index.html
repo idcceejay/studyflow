@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyFlow — AI Notes, Quizzes & Flashcards</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+<style>
+:root{
+  --bg:#f7f8fa; --surface:#ffffff; --border:#e6e8ee; --text:#1a1d26; --muted:#6b7280;
+  --accent:#4f6df5; --accent-soft:#eef1fe; --accent-hover:#3d5ae8; --danger:#e5484d;
+  --green:#2f9e6e; --radius:12px; --shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+input,textarea,select{font-family:inherit}
+
+/* ---------- layout ---------- */
+.app{display:flex;height:100vh}
+.sidebar{width:280px;min-width:280px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+
+/* ---------- sidebar ---------- */
+.brand{display:flex;align-items:center;gap:10px;padding:20px 18px 14px}
+.brand .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#4f6df5,#8b5cf6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px}
+.brand h1{font-size:17px;font-weight:700;letter-spacing:-.02em}
+.side-actions{padding:0 14px 12px;display:flex;flex-direction:column;gap:8px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:9px 14px;border-radius:9px;font-size:13.5px;font-weight:600;transition:.15s}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent-hover)}
+.btn-soft{background:var(--accent-soft);color:var(--accent)}
+.btn-soft:hover{background:#e2e8fd}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
+.btn-ghost:hover{background:var(--bg);color:var(--text)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.notes-label{padding:10px 18px 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.note-list{flex:1;overflow-y:auto;padding:0 10px 10px}
+.note-item{padding:10px 12px;border-radius:9px;cursor:pointer;margin-bottom:2px;transition:.12s}
+.note-item:hover{background:var(--bg)}
+.note-item.active{background:var(--accent-soft)}
+.note-item .t{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.note-item.active .t{color:var(--accent)}
+.note-item .d{font-size:11.5px;color:var(--muted);margin-top:2px}
+.side-footer{padding:12px 14px;border-top:1px solid var(--border)}
+.empty-side{padding:24px 18px;color:var(--muted);font-size:13px;text-align:center;line-height:1.5}
+
+/* ---------- topbar / tabs ---------- */
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:var(--surface);border-bottom:1px solid var(--border)}
+.tabs{display:flex;gap:4px;background:var(--bg);padding:4px;border-radius:10px}
+.tab{padding:7px 18px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--muted);transition:.15s}
+.tab.active{background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+.status-pill{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--danger)}
+.dot.ok{background:var(--green)}
+
+/* ---------- content ---------- */
+.content{flex:1;overflow-y:auto;padding:28px 34px}
+.view{display:none;max-width:860px;margin:0 auto}
+.view.active{display:block}
+
+/* ---------- notes view ---------- */
+.note-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:6px}
+#noteTitle{font-size:26px;font-weight:800;letter-spacing:-.02em;border:none;background:transparent;width:100%;color:var(--text);outline:none}
+.note-tools{display:flex;gap:8px;flex-shrink:0}
+.icon-btn{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--muted);border:1px solid var(--border);background:var(--surface);transition:.15s}
+.icon-btn:hover{color:var(--text);background:var(--bg)}
+.icon-btn.danger:hover{color:var(--danger);border-color:#fbd0d1;background:#fef2f2}
+.note-meta{font-size:12.5px;color:var(--muted);margin-bottom:18px}
+.ai-bar{display:flex;gap:8px;margin-bottom:18px}
+.ai-bar input{flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:13.5px;background:var(--surface);outline:none}
+.ai-bar input:focus{border-color:var(--accent)}
+.md{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px 32px;box-shadow:var(--shadow);line-height:1.65;font-size:15px}
+.md h1{font-size:22px;margin:18px 0 10px}
+.md h2{font-size:19px;margin:18px 0 8px}
+.md h3{font-size:16px;margin:14px 0 6px}
+.md p{margin:8px 0}
+.md ul,.md ol{margin:8px 0 8px 22px}
+.md li{margin:4px 0}
+.md code{background:var(--bg);padding:2px 6px;border-radius:5px;font-size:13px}
+.md pre{background:#1e2230;color:#e6e9f2;padding:14px 16px;border-radius:10px;overflow-x:auto;margin:10px 0}
+.md pre code{background:none;color:inherit}
+.md blockquote{border-left:3px solid var(--accent);padding-left:14px;color:var(--muted);margin:10px 0}
+.md table{border-collapse:collapse;margin:10px 0;width:100%}
+.md th,.md td{border:1px solid var(--border);padding:7px 10px;text-align:left;font-size:14px}
+.md th{background:var(--bg)}
+#noteEditor{width:100%;min-height:420px;border:1px solid var(--accent);border-radius:var(--radius);padding:24px;font-size:14px;font-family:ui-monospace,Consolas,monospace;line-height:1.6;resize:vertical;outline:none;display:none}
+
+/* ---------- empty state / hero ---------- */
+.hero{text-align:center;padding:70px 20px}
+.hero .big{font-size:52px;margin-bottom:14px}
+.hero h2{font-size:24px;font-weight:800;letter-spacing:-.02em;margin-bottom:8px}
+.hero p{color:var(--muted);font-size:14.5px;max-width:440px;margin:0 auto 24px;line-height:1.6}
+
+/* ---------- dropzone ---------- */
+.dropzone{border:2px dashed #c9cfdd;border-radius:var(--radius);padding:44px 20px;text-align:center;color:var(--muted);font-size:14px;background:var(--surface);cursor:pointer;transition:.15s;margin-bottom:20px}
+.dropzone:hover,.dropzone.drag{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.dropzone .dz-icon{font-size:30px;margin-bottom:8px}
+
+/* ---------- quiz ---------- */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px 28px;box-shadow:var(--shadow);margin-bottom:18px}
+.panel h3{font-size:16px;font-weight:700;margin-bottom:14px}
+.gen-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.gen-row select{padding:9px 12px;border:1px solid var(--border);border-radius:9px;font-size:13.5px;background:var(--surface);min-width:220px;outline:none}
+.q-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:22px 26px;box-shadow:var(--shadow);margin-bottom:14px}
+.q-card .qnum{font-size:11.5px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.q-card .qtext{font-size:15.5px;font-weight:600;margin-bottom:14px;line-height:1.5}
+.opt{display:block;width:100%;text-align:left;padding:11px 15px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;margin-bottom:8px;background:var(--surface);transition:.12s;color:var(--text)}
+.opt:hover{border-color:var(--accent);background:var(--accent-soft)}
+.opt.correct{border-color:var(--green);background:#ecfaf3;font-weight:600}
+.opt.wrong{border-color:var(--danger);background:#fef2f2}
+.opt:disabled{cursor:default}
+.explain{font-size:13.5px;color:var(--muted);background:var(--bg);border-radius:9px;padding:10px 14px;margin-top:6px;line-height:1.5;display:none}
+.score-banner{background:linear-gradient(135deg,#4f6df5,#8b5cf6);color:#fff;border-radius:var(--radius);padding:26px;text-align:center;margin-bottom:18px}
+.score-banner .sc{font-size:34px;font-weight:800}
+
+/* ---------- flashcards ---------- */
+.fc-stage{perspective:1200px;max-width:560px;margin:0 auto 20px}
+.fc-card{position:relative;width:100%;height:320px;transform-style:preserve-3d;transition:transform .5s;cursor:pointer}
+.fc-card.flipped{transform:rotateY(180deg)}
+.fc-face{position:absolute;inset:0;backface-visibility:hidden;border-radius:16px;display:flex;align-items:center;justify-content:center;padding:34px;text-align:center;font-size:18px;line-height:1.55;box-shadow:0 4px 20px rgba(16,24,40,.1)}
+.fc-front{background:var(--surface);border:1px solid var(--border);font-weight:600}
+.fc-back{background:linear-gradient(135deg,#4f6df5,#8b5cf6);color:#fff;transform:rotateY(180deg);font-size:16px}
+.fc-hint{text-align:center;color:var(--muted);font-size:12.5px;margin-bottom:16px}
+.fc-nav{display:flex;justify-content:center;align-items:center;gap:16px}
+.fc-count{font-size:13.5px;color:var(--muted);font-weight:600;min-width:70px;text-align:center}
+
+/* ---------- modal ---------- */
+.overlay{position:fixed;inset:0;background:rgba(16,20,32,.45);display:none;align-items:center;justify-content:center;z-index:50}
+.overlay.open{display:flex}
+.modal{background:var(--surface);border-radius:16px;padding:28px;width:480px;max-width:92vw;max-height:88vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,.2)}
+.modal h3{font-size:17px;font-weight:700;margin-bottom:6px}
+.modal .sub{font-size:13px;color:var(--muted);margin-bottom:18px;line-height:1.5}
+.modal .sub a{color:var(--accent)}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12.5px;font-weight:600;margin-bottom:6px}
+.field input,.field select{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:9px;font-size:13.5px;outline:none}
+.field input:focus{border-color:var(--accent)}
+.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+
+/* ---------- toast & spinner ---------- */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1d26;color:#fff;padding:11px 20px;border-radius:10px;font-size:13.5px;display:none;z-index:99;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.spinner{width:15px;height:15px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
+.spinner.dark{border-color:#c9cfdd;border-top-color:var(--accent)}
+@keyframes spin{to{transform:rotate(360deg)}}
+::-webkit-scrollbar{width:9px}
+::-webkit-scrollbar-thumb{background:#d3d7e0;border-radius:5px}
+@media(max-width:760px){.sidebar{display:none}.content{padding:18px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">📚</div><h1>StudyFlow</h1></div>
+    <div class="side-actions">
+      <button class="btn btn-primary" onclick="openUpload()">⬆ Upload Lecture</button>
+      <button class="btn btn-soft" onclick="newNote()">＋ New Blank Note</button>
+    </div>
+    <div class="notes-label">My Notes</div>
+    <div class="note-list" id="noteList"></div>
+    <div class="side-footer">
+      <button class="btn btn-ghost" style="width:100%" onclick="openSettings()">⚙ Settings & API Key</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="topbar">
+      <div class="tabs">
+        <button class="tab active" data-view="notes" onclick="switchView('notes')">📝 Notes</button>
+        <button class="tab" data-view="quiz" onclick="switchView('quiz')">❓ Quiz</button>
+        <button class="tab" data-view="cards" onclick="switchView('cards')">🃏 Flashcards</button>
+      </div>
+      <div class="status-pill" id="apiStatus"><span class="dot"></span>No API key</div>
+    </div>
+
+    <div class="content">
+      <!-- NOTES VIEW -->
+      <div class="view active" id="view-notes">
+        <div id="noteEmpty">
+          <div class="hero">
+            <div class="big">🎓</div>
+            <h2>Turn lectures into study notes</h2>
+            <p>Upload a lecture (PPTX, PDF, DOCX, or TXT) and AI will summarize it into clean, organized notes. Then generate quizzes and flashcards to study.</p>
+            <button class="btn btn-primary" onclick="openUpload()">⬆ Upload your first lecture</button>
+          </div>
+        </div>
+        <div id="noteView" style="display:none">
+          <div class="note-header">
+            <input id="noteTitle" placeholder="Untitled note" onchange="saveTitle()">
+            <div class="note-tools">
+              <button class="icon-btn" id="editToggle" title="Edit raw markdown" onclick="toggleEdit()">✏️</button>
+              <button class="icon-btn danger" title="Delete note" onclick="deleteNote()">🗑</button>
+            </div>
+          </div>
+          <div class="note-meta" id="noteMeta"></div>
+          <div class="ai-bar">
+            <input id="aiInstruction" placeholder='✨ Edit with AI — e.g. "simplify this", "add examples", "make it more detailed", "turn into bullet points"' onkeydown="if(event.key==='Enter')aiEdit()">
+            <button class="btn btn-primary" id="aiEditBtn" onclick="aiEdit()">✨ AI Edit</button>
+          </div>
+          <div class="md" id="noteRender"></div>
+          <textarea id="noteEditor" oninput="saveBody(this.value)"></textarea>
+        </div>
+      </div>
+
+      <!-- QUIZ VIEW -->
+      <div class="view" id="view-quiz">
+        <div class="panel">
+          <h3>❓ Generate a quiz from your notes</h3>
+          <div class="gen-row">
+            <select id="quizNoteSel"></select>
+            <select id="quizCount" style="min-width:130px">
+              <option value="5">5 questions</option>
+              <option value="10" selected>10 questions</option>
+              <option value="15">15 questions</option>
+            </select>
+            <button class="btn btn-primary" id="quizGenBtn" onclick="genQuiz()">Generate Quiz</button>
+          </div>
+        </div>
+        <div id="quizArea"></div>
+      </div>
+
+      <!-- FLASHCARDS VIEW -->
+      <div class="view" id="view-cards">
+        <div class="panel">
+          <h3>🃏 Generate flashcards from your notes</h3>
+          <div class="gen-row">
+            <select id="cardNoteSel"></select>
+            <select id="cardCount" style="min-width:130px">
+              <option value="10" selected>10 cards</option>
+              <option value="15">15 cards</option>
+              <option value="20">20 cards</option>
+            </select>
+            <button class="btn btn-primary" id="cardGenBtn" onclick="genCards()">Generate Cards</button>
+          </div>
+        </div>
+        <div id="cardArea"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Upload modal -->
+<div class="overlay" id="uploadModal">
+  <div class="modal">
+    <h3>Upload a lecture</h3>
+    <p class="sub">Supported: <b>.pptx, .pdf, .docx, .txt, .md</b> — the file is read entirely in your browser, then AI summarizes it into study notes.</p>
+    <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+      <div class="dz-icon">📄</div>
+      <div><b>Click to browse</b> or drag & drop a file here</div>
+    </div>
+    <input type="file" id="fileInput" accept=".pptx,.pdf,.docx,.txt,.md" style="display:none" onchange="handleFile(this.files[0])">
+    <div class="field">
+      <label>Summary style</label>
+      <select id="sumStyle">
+        <option value="detailed" selected>Detailed study notes (headings, bullets, key terms)</option>
+        <option value="concise">Concise summary (short & high-level)</option>
+        <option value="exam">Exam-focused (definitions, formulas, likely test points)</option>
+      </select>
+    </div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('uploadModal')">Cancel</button></div>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div class="overlay" id="settingsModal">
+  <div class="modal">
+    <h3>Settings</h3>
+    <p class="sub">StudyFlow uses Google Gemini for AI features. Get a <b>free API key</b> at <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a> — it's stored only in your browser (localStorage), never sent anywhere except Google.</p>
+    <div class="field">
+      <label>Gemini API Key</label>
+      <input id="apiKeyInput" type="password" placeholder="AIza...">
+    </div>
+    <div class="field">
+      <label>Model</label>
+      <select id="modelSel">
+        <option value="gemini-2.5-flash" selected>gemini-2.5-flash (recommended)</option>
+        <option value="gemini-2.5-pro">gemini-2.5-pro (smarter, slower)</option>
+        <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('settingsModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ================= state ================= */
+const LS_NOTES='sf_notes', LS_KEY='sf_apikey', LS_MODEL='sf_model';
+let notes = JSON.parse(localStorage.getItem(LS_NOTES)||'[]');
+let currentId = null;
+let quiz = null, cards = null, cardIdx = 0;
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+/* ================= helpers ================= */
+const $ = id => document.getElementById(id);
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function toast(msg,ms=3000){const t=$('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',ms)}
+function persist(){localStorage.setItem(LS_NOTES,JSON.stringify(notes))}
+function getKey(){return localStorage.getItem(LS_KEY)||''}
+function getModel(){return localStorage.getItem(LS_MODEL)||'gemini-2.5-flash'}
+function fmtDate(ts){return new Date(ts).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})}
+
+/* ================= gemini ================= */
+async function gemini(prompt,{json=false}={}) {
+  const key=getKey();
+  if(!key){openSettings();throw new Error('Please add your free Gemini API key in Settings first.')}
+  const body={contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.4}};
+  if(json)body.generationConfig.responseMimeType='application/json';
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${getModel()}:generateContent?key=${key}`,
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok){
+    const e=await r.json().catch(()=>({}));
+    throw new Error(e.error?.message||`API error (${r.status})`);
+  }
+  const d=await r.json();
+  const text=d.candidates?.[0]?.content?.parts?.map(p=>p.text).join('')||'';
+  if(!text)throw new Error('Empty response from AI.');
+  return text;
+}
+function parseJson(text){
+  try{return JSON.parse(text)}catch(e){}
+  const m=text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if(m){try{return JSON.parse(m[1])}catch(e){}}
+  const a=text.indexOf('['),b=text.lastIndexOf(']');
+  if(a>-1&&b>a){try{return JSON.parse(text.slice(a,b+1))}catch(e){}}
+  throw new Error('Could not parse AI response — try again.');
+}
+
+/* ================= file extraction ================= */
+async function extractText(file){
+  const name=file.name.toLowerCase();
+  if(name.endsWith('.txt')||name.endsWith('.md'))return await file.text();
+  if(name.endsWith('.pdf'))return await extractPdf(file);
+  if(name.endsWith('.pptx'))return await extractPptx(file);
+  if(name.endsWith('.docx'))return await extractDocx(file);
+  throw new Error('Unsupported file type. Use PPTX, PDF, DOCX, TXT, or MD.');
+}
+async function extractPdf(file){
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  let out='';
+  for(let i=1;i<=pdf.numPages;i++){
+    const page=await pdf.getPage(i);
+    const tc=await page.getTextContent();
+    out+=`\n--- Page ${i} ---\n`+tc.items.map(it=>it.str).join(' ');
+  }
+  return out;
+}
+async function extractPptx(file){
+  const zip=await JSZip.loadAsync(file);
+  const slides=Object.keys(zip.files)
+    .filter(f=>/^ppt\/slides\/slide\d+\.xml$/.test(f))
+    .sort((a,b)=>parseInt(a.match(/\d+/g).pop())-parseInt(b.match(/\d+/g).pop()));
+  if(!slides.length)throw new Error('No slides found in this PPTX.');
+  let out='';
+  for(let i=0;i<slides.length;i++){
+    const xml=await zip.files[slides[i]].async('string');
+    const texts=[...xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map(m=>m[1]);
+    out+=`\n--- Slide ${i+1} ---\n`+texts.join('\n');
+    // include speaker notes if present
+    const notesFile=`ppt/notesSlides/notesSlide${i+1}.xml`;
+    if(zip.files[notesFile]){
+      const nxml=await zip.files[notesFile].async('string');
+      const nt=[...nxml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map(m=>m[1]).join(' ').trim();
+      if(nt)out+=`\n[Speaker notes: ${nt}]`;
+    }
+  }
+  return out;
+}
+async function extractDocx(file){
+  const zip=await JSZip.loadAsync(file);
+  const doc=zip.files['word/document.xml'];
+  if(!doc)throw new Error('Could not read this DOCX file.');
+  const xml=await doc.async('string');
+  // split on paragraphs, then collect text runs within each
+  return xml.split(/<\/w:p>/).map(p=>
+    [...p.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map(m=>m[1]).join('')
+  ).filter(Boolean).join('\n').trim();
+}
+
+/* ================= upload & summarize ================= */
+function openUpload(){$('uploadModal').classList.add('open')}
+function closeModal(id){$(id).classList.remove('open')}
+const dz=$('dropzone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');if(e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0])});
+
+async function handleFile(file){
+  if(!file)return;
+  $('fileInput').value='';
+  if(!getKey()){closeModal('uploadModal');openSettings();toast('Add your free Gemini API key first (Settings)');return}
+  const dzHTML=dz.innerHTML;
+  try{
+    dz.innerHTML='<div class="spinner dark"></div><div style="margin-top:8px">Reading file…</div>';
+    let raw=(await extractText(file)).trim();
+    if(!raw||raw.length<40)throw new Error('Could not find readable text in this file (is it a scanned/image-only file?).');
+    if(raw.length>150000)raw=raw.slice(0,150000)+'\n[...truncated]';
+    dz.innerHTML='<div class="spinner dark"></div><div style="margin-top:8px">AI is summarizing your lecture…</div>';
+    const style=$('sumStyle').value;
+    const styleTxt={
+      detailed:'detailed, well-organized study notes with clear headings (##), bullet points, **bolded key terms**, and definitions',
+      concise:'a concise high-level summary with short sections and brief bullet points',
+      exam:'exam-focused study notes emphasizing definitions, formulas, processes, and points likely to be tested, with headings and bullets'
+    }[style];
+    const md=await gemini(
+`You are an expert note-taker helping a college student study. Below is the raw extracted text of a lecture titled "${file.name}". Rewrite it as ${styleTxt}.
+
+Rules:
+- Output ONLY clean Markdown (no preamble, no code fences around the whole thing).
+- Start with a single line: "# <a short descriptive title for this lecture>".
+- Preserve all important concepts, terms, formulas, and examples.
+- Organize logically by topic, not by slide/page.
+
+LECTURE TEXT:
+${raw}`);
+    const titleMatch=md.match(/^#\s+(.+)$/m);
+    const title=titleMatch?titleMatch[1].trim():file.name.replace(/\.[^.]+$/,'');
+    const note={id:uid(),title,body:md,created:Date.now(),source:file.name};
+    notes.unshift(note);persist();
+    closeModal('uploadModal');
+    currentId=note.id;renderSidebar();renderNote();switchView('notes');
+    toast('✅ Lecture summarized into notes!');
+  }catch(err){toast('⚠ '+err.message,5000)}
+  finally{dz.innerHTML=dzHTML}
+}
+
+/* ================= notes CRUD ================= */
+function newNote(){
+  const note={id:uid(),title:'Untitled note',body:'# Untitled note\n\nStart typing (click ✏️ to edit)…',created:Date.now(),source:null};
+  notes.unshift(note);persist();currentId=note.id;
+  renderSidebar();renderNote();switchView('notes');
+  toggleEdit(true);
+}
+function selectNote(id){currentId=id;renderSidebar();renderNote();switchView('notes')}
+function cur(){return notes.find(n=>n.id===currentId)}
+function deleteNote(){
+  const n=cur();if(!n)return;
+  if(!confirm(`Delete "${n.title}"? This can't be undone.`))return;
+  notes=notes.filter(x=>x.id!==n.id);persist();
+  currentId=notes[0]?.id||null;
+  renderSidebar();renderNote();
+}
+function saveTitle(){const n=cur();if(!n)return;n.title=$('noteTitle').value||'Untitled note';persist();renderSidebar()}
+function saveBody(v){const n=cur();if(!n)return;n.body=v;persist()}
+function toggleEdit(force){
+  const ed=$('noteEditor'),rd=$('noteRender');
+  const editing=force===true?false:ed.style.display==='block';
+  if(editing){ // switch to rendered
+    ed.style.display='none';rd.style.display='block';renderNote();
+  }else{
+    const n=cur();if(!n)return;
+    ed.value=n.body;ed.style.display='block';rd.style.display='none';ed.focus();
+  }
+}
+
+/* ================= AI edit ================= */
+async function aiEdit(){
+  const n=cur();if(!n)return;
+  const inst=$('aiInstruction').value.trim();
+  if(!inst){toast('Type an instruction first, e.g. "simplify this"');return}
+  const btn=$('aiEditBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Editing…';
+  try{
+    const md=await gemini(
+`You are editing a student's study notes. Apply this instruction to the notes: "${inst}"
+
+Rules:
+- Output ONLY the full revised notes in clean Markdown (no preamble, no explanation, no code fences around the whole output).
+- Keep the "# title" heading line unless the instruction says to change it.
+- Preserve all content that the instruction doesn't ask to change.
+
+CURRENT NOTES:
+${n.body}`);
+    n.body=md.trim();persist();
+    $('aiInstruction').value='';
+    $('noteEditor').style.display='none';$('noteRender').style.display='block';
+    renderNote();
+    toast('✨ Notes updated');
+  }catch(err){toast('⚠ '+err.message,5000)}
+  finally{btn.disabled=false;btn.innerHTML='✨ AI Edit'}
+}
+
+/* ================= quiz ================= */
+async function genQuiz(){
+  const note=notes.find(n=>n.id===$('quizNoteSel').value);
+  if(!note){toast('Upload or create a note first');return}
+  const count=$('quizCount').value;
+  const btn=$('quizGenBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Generating…';
+  $('quizArea').innerHTML='';
+  try{
+    const text=await gemini(
+`Create exactly ${count} multiple-choice quiz questions from these study notes. Test understanding, not trivia.
+
+Return ONLY a JSON array in this exact shape:
+[{"q":"question text","options":["A","B","C","D"],"answer":0,"explain":"one-sentence explanation"}]
+"answer" is the index (0-3) of the correct option. Vary which index is correct.
+
+NOTES:
+${note.body}`,{json:true});
+    quiz={items:parseJson(text),answered:0,correct:0,noteTitle:note.title};
+    renderQuiz();
+  }catch(err){toast('⚠ '+err.message,5000)}
+  finally{btn.disabled=false;btn.innerHTML='Generate Quiz'}
+}
+function renderQuiz(){
+  const area=$('quizArea');
+  area.innerHTML=`<div id="scoreSlot"></div>`+quiz.items.map((it,i)=>`
+    <div class="q-card" id="q${i}">
+      <div class="qnum">Question ${i+1} of ${quiz.items.length}</div>
+      <div class="qtext">${esc(it.q)}</div>
+      ${it.options.map((o,j)=>`<button class="opt" onclick="answer(${i},${j})">${String.fromCharCode(65+j)}. ${esc(o)}</button>`).join('')}
+      <div class="explain" id="ex${i}"></div>
+    </div>`).join('');
+}
+function answer(qi,oi){
+  const it=quiz.items[qi];if(it.done)return;it.done=true;
+  quiz.answered++;if(oi===it.answer)quiz.correct++;
+  const card=$('q'+qi);
+  [...card.querySelectorAll('.opt')].forEach((b,j)=>{
+    b.disabled=true;
+    if(j===it.answer)b.classList.add('correct');
+    else if(j===oi)b.classList.add('wrong');
+  });
+  const ex=$('ex'+qi);ex.style.display='block';
+  ex.innerHTML=(oi===it.answer?'✅ Correct! ':'❌ Not quite. ')+esc(it.explain||'');
+  if(quiz.answered===quiz.items.length){
+    const pct=Math.round(quiz.correct/quiz.items.length*100);
+    $('scoreSlot').innerHTML=`<div class="score-banner"><div class="sc">${quiz.correct}/${quiz.items.length} — ${pct}%</div><div>${pct>=90?'🏆 Excellent!':pct>=70?'💪 Nice work — review the misses.':'📖 Keep studying — try the flashcards!'}</div></div>`;
+    $('scoreSlot').scrollIntoView({behavior:'smooth'});
+  }
+}
+
+/* ================= flashcards ================= */
+async function genCards(){
+  const note=notes.find(n=>n.id===$('cardNoteSel').value);
+  if(!note){toast('Upload or create a note first');return}
+  const count=$('cardCount').value;
+  const btn=$('cardGenBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Generating…';
+  $('cardArea').innerHTML='';
+  try{
+    const text=await gemini(
+`Create exactly ${count} study flashcards from these notes. Front = a term, concept, or question. Back = a clear, concise answer or definition.
+
+Return ONLY a JSON array: [{"front":"...","back":"..."}]
+
+NOTES:
+${note.body}`,{json:true});
+    cards=parseJson(text);cardIdx=0;
+    renderCards();
+  }catch(err){toast('⚠ '+err.message,5000)}
+  finally{btn.disabled=false;btn.innerHTML='Generate Cards'}
+}
+function renderCards(){
+  if(!cards||!cards.length)return;
+  const c=cards[cardIdx];
+  $('cardArea').innerHTML=`
+    <div class="fc-hint">Click the card to flip · use ← → keys to navigate</div>
+    <div class="fc-stage">
+      <div class="fc-card" id="fcCard" onclick="this.classList.toggle('flipped')">
+        <div class="fc-face fc-front">${esc(c.front)}</div>
+        <div class="fc-face fc-back">${esc(c.back)}</div>
+      </div>
+    </div>
+    <div class="fc-nav">
+      <button class="btn btn-ghost" onclick="moveCard(-1)">← Prev</button>
+      <div class="fc-count">${cardIdx+1} / ${cards.length}</div>
+      <button class="btn btn-ghost" onclick="moveCard(1)">Next →</button>
+      <button class="btn btn-soft" onclick="shuffleCards()">🔀 Shuffle</button>
+    </div>`;
+}
+function moveCard(d){if(!cards)return;cardIdx=(cardIdx+d+cards.length)%cards.length;renderCards()}
+function shuffleCards(){for(let i=cards.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[cards[i],cards[j]]=[cards[j],cards[i]]}cardIdx=0;renderCards();toast('Shuffled!')}
+document.addEventListener('keydown',e=>{
+  if(!$('view-cards').classList.contains('active')||!cards)return;
+  if(e.key==='ArrowLeft')moveCard(-1);
+  if(e.key==='ArrowRight')moveCard(1);
+  if(e.key===' '&&document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='TEXTAREA'){e.preventDefault();$('fcCard')?.classList.toggle('flipped')}
+});
+
+/* ================= rendering ================= */
+function renderSidebar(){
+  const list=$('noteList');
+  if(!notes.length){list.innerHTML='<div class="empty-side">No notes yet.<br>Upload a lecture to get started!</div>'}
+  else list.innerHTML=notes.map(n=>`
+    <div class="note-item ${n.id===currentId?'active':''}" onclick="selectNote('${n.id}')">
+      <div class="t">${esc(n.title)}</div>
+      <div class="d">${fmtDate(n.created)}${n.source?' · '+esc(n.source):''}</div>
+    </div>`).join('');
+  // note selects for quiz/cards
+  const opts=notes.map(n=>`<option value="${n.id}">${esc(n.title)}</option>`).join('')||'<option value="">— no notes yet —</option>';
+  $('quizNoteSel').innerHTML=opts;$('cardNoteSel').innerHTML=opts;
+}
+function renderNote(){
+  const n=cur();
+  $('noteEmpty').style.display=n?'none':'block';
+  $('noteView').style.display=n?'block':'none';
+  if(!n)return;
+  $('noteTitle').value=n.title;
+  $('noteMeta').textContent=`Created ${fmtDate(n.created)}`+(n.source?` · from ${n.source}`:'');
+  $('noteRender').innerHTML=marked.parse(n.body);
+}
+function switchView(v){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  $('view-'+v).classList.add('active');
+}
+
+/* ================= settings ================= */
+function openSettings(){
+  $('apiKeyInput').value=getKey();
+  $('modelSel').value=getModel();
+  $('settingsModal').classList.add('open');
+}
+function saveSettings(){
+  localStorage.setItem(LS_KEY,$('apiKeyInput').value.trim());
+  localStorage.setItem(LS_MODEL,$('modelSel').value);
+  closeModal('settingsModal');
+  updateStatus();
+  toast(getKey()?'✅ Settings saved':'Key removed');
+}
+function updateStatus(){
+  const ok=!!getKey();
+  $('apiStatus').innerHTML=`<span class="dot ${ok?'ok':''}"></span>${ok?'AI ready':'No API key — click Settings'}`;
+}
+document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open')}));
+
+/* ================= init ================= */
+currentId=notes[0]?.id||null;
+renderSidebar();renderNote();updateStatus();
+</script>
+</body>
+</html>
