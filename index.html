@@ -139,7 +139,7 @@ option{background:var(--surface);color:var(--text)}
 .panel-sub{font-size:13px;color:var(--muted);margin:-6px 0 14px;line-height:1.5}
 .progress-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:14px;box-shadow:var(--shadow)}
 .ptrack{height:8px;background:var(--bg);border-radius:5px;overflow:hidden;margin-bottom:10px}
-.pfill{height:100%;background:linear-gradient(90deg,#4f6df5,#8b5cf6);border-radius:5px;transition:width .4s}
+.pfill{height:100%;background:linear-gradient(90deg,#4f6df5,#8b5cf6);border-radius:5px;transition:width .65s cubic-bezier(.25,.9,.3,1)}
 .legend{display:flex;gap:16px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
 .legend b{color:var(--text)}
 .chip{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
@@ -157,7 +157,8 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
 
 /* ---------- flashcards ---------- */
 .fc-stage{perspective:1200px;max-width:560px;margin:0 auto 20px}
-.fc-card{position:relative;width:100%;height:320px;transform-style:preserve-3d;transition:transform .5s;cursor:pointer}
+.fc-stage:hover .fc-card:not(.flipped){transform:translateY(-4px) rotateX(1.5deg)}
+.fc-card{position:relative;width:100%;height:320px;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.3,.9,.35,1);cursor:pointer}
 .fc-card.flipped{transform:rotateY(180deg)}
 .fc-face{position:absolute;inset:0;backface-visibility:hidden;border-radius:16px;display:flex;align-items:center;justify-content:center;padding:34px;text-align:center;font-size:18px;line-height:1.55;box-shadow:0 4px 20px rgba(16,24,40,.1)}
 .fc-front{background:var(--surface);border:1px solid var(--border);font-weight:600}
@@ -165,6 +166,53 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
 .fc-hint{text-align:center;color:var(--muted);font-size:12.5px;margin-bottom:16px}
 .fc-nav{display:flex;justify-content:center;align-items:center;gap:16px}
 .fc-count{font-size:13.5px;color:var(--muted);font-weight:600;min-width:70px;text-align:center}
+
+/* ---------- fluid motion & micro-interactions ---------- */
+html,.content{scroll-behavior:smooth}
+.btn{transition:transform .12s,background .16s,box-shadow .16s,color .16s}
+.btn:hover{transform:translateY(-1px)}
+.btn:active{transform:translateY(0) scale(.97)}
+.icon-btn{transition:transform .12s,background .15s,color .15s,border-color .15s}
+.icon-btn:active{transform:scale(.92)}
+.note-item{transition:background .15s,transform .1s}
+.note-item:active{transform:scale(.985)}
+.tab{transition:background .18s,color .18s,box-shadow .18s}
+.view.active{animation:viewIn .28s ease}
+@keyframes viewIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.q-card{animation:cardIn .38s cubic-bezier(.2,.8,.3,1)}
+@keyframes cardIn{from{opacity:0;transform:translateY(16px) scale(.985)}to{opacity:1;transform:none}}
+.opt{transition:border-color .15s,background .15s,transform .1s}
+.opt:active{transform:scale(.985)}
+.opt.correct{animation:popCorrect .4s cubic-bezier(.3,1.6,.5,1)}
+@keyframes popCorrect{0%{transform:scale(1)}40%{transform:scale(1.02)}100%{transform:scale(1)}}
+.opt.wrong{animation:shake .38s ease}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}55%{transform:translateX(5px)}80%{transform:translateX(-3px)}}
+.fb{animation:fbIn .3s ease}
+@keyframes fbIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+.score-banner{animation:bannerPop .55s cubic-bezier(.3,1.5,.4,1)}
+@keyframes bannerPop{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}
+.progress-wrap{animation:fbIn .3s ease}
+#toast{animation:toastIn .28s cubic-bezier(.2,.9,.3,1.2)}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,14px)}to{opacity:1;transform:translate(-50%,0)}}
+.msg{animation:fbIn .25s ease}
+.queue-item{animation:fbIn .22s ease}
+.modal{animation:modalIn .3s cubic-bezier(.25,1.2,.4,1)}
+@keyframes modalIn{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
+
+/* ---------- highlight & explain ---------- */
+#hlMenu{position:fixed;z-index:80;display:none;gap:2px;background:#20242f;border-radius:10px;padding:4px;box-shadow:0 8px 28px rgba(0,0,0,.32);animation:fbIn .18s ease}
+#hlMenu button{color:#e8eaf2;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:7px;transition:background .12s}
+#hlMenu button:hover{background:rgba(255,255,255,.13)}
+.explain-panel{position:fixed;top:0;right:0;height:100vh;width:410px;max-width:94vw;background:var(--surface);border-left:1px solid var(--border);box-shadow:-14px 0 38px rgba(16,24,40,.16);z-index:70;transform:translateX(105%);transition:transform .38s cubic-bezier(.25,.9,.3,1);display:flex;flex-direction:column}
+.explain-panel.open{transform:none}
+.ep-head{display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid var(--border)}
+.ep-head h4{font-size:14.5px;font-weight:700}
+.ep-quote{margin:14px 18px 0;padding:10px 14px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 9px 9px 0;font-size:12.5px;color:var(--muted);max-height:110px;overflow-y:auto;font-style:italic}
+.ep-body{flex:1;overflow-y:auto;padding:14px 18px;font-size:14px;line-height:1.62}
+.ep-body p{margin:6px 0}
+.ep-body ul,.ep-body ol{margin:6px 0 6px 20px}
+.ep-body code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:12.5px}
+.ep-foot{padding:12px 18px;border-top:1px solid var(--border)}
 
 /* ---------- tutor chat ---------- */
 .chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 300px);min-height:320px}
@@ -431,6 +479,25 @@ body.dark .qbadge.wr{background:#3a2c14;color:#f0b35e}
       <button class="btn btn-ghost" onclick="closeModal('settingsModal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveSettings()">Save</button>
     </div>
+  </div>
+</div>
+
+<!-- Highlight menu -->
+<div id="hlMenu">
+  <button onmousedown="event.preventDefault();explainSelection()">✨ Explain</button>
+  <button onmousedown="event.preventDefault();copySelection()">📋 Copy</button>
+</div>
+
+<!-- Explain side panel -->
+<div class="explain-panel" id="explainPanel">
+  <div class="ep-head">
+    <h4>✨ Gemini explains</h4>
+    <button class="icon-btn" onclick="closeExplain()" title="Close">✕</button>
+  </div>
+  <div class="ep-quote" id="epQuote"></div>
+  <div class="ep-body" id="epBody"></div>
+  <div class="ep-foot">
+    <button class="btn btn-soft" style="width:100%" onclick="explainToTutor()">💬 Continue in Tutor chat</button>
   </div>
 </div>
 
@@ -1100,6 +1167,60 @@ ${combined}`);
     toast('📖 Study guide created!');
   }catch(err){toast('⚠ '+err.message,5000)}
   finally{btn.disabled=false;btn.innerHTML='Create Study Guide'}
+}
+
+/* ================= highlight & explain ================= */
+let hlText='';
+const hlMenu=$('hlMenu');
+document.addEventListener('selectionchange',()=>{
+  clearTimeout(window._hlT);
+  window._hlT=setTimeout(()=>{
+    const s=window.getSelection();
+    const txt=s?s.toString().trim():'';
+    const render=$('noteRender');
+    if(txt.length>2&&s.rangeCount&&render&&render.contains(s.anchorNode)&&render.contains(s.focusNode)){
+      hlText=txt;
+      const r=s.getRangeAt(0).getBoundingClientRect();
+      hlMenu.style.display='flex';
+      hlMenu.style.top=Math.max(8,r.top-46)+'px';
+      hlMenu.style.left=Math.max(8,Math.min(innerWidth-180,r.left+r.width/2-80))+'px';
+    }else{
+      hlMenu.style.display='none';
+    }
+  },160);
+});
+function copySelection(){
+  navigator.clipboard.writeText(hlText).then(()=>toast('📋 Copied'));
+  hlMenu.style.display='none';
+}
+async function explainSelection(){
+  hlMenu.style.display='none';
+  if(!hlText)return;
+  if(!getKey()){openSettings();toast('Add your Gemini API key first (Settings)');return}
+  const q=hlText;
+  $('explainPanel').classList.add('open');
+  $('epQuote').textContent='“'+(q.length>420?q.slice(0,420)+'…':q)+'”';
+  $('epBody').innerHTML='<div style="display:flex;gap:9px;align-items:center;color:var(--muted)"><span class="spinner dark"></span> Breaking it down…</div>';
+  try{
+    const n=cur();
+    const md=await gemini(
+`A college student highlighted this passage in their study notes and wants it explained:
+
+"${q}"
+${n?`\n(It comes from their note titled "${n.title}".)\n`:''}
+Explain it like a great tutor: conversational and clear, broken into small steps, with one concrete analogy or real-world example. Keep it under ~250 words. Use Markdown. End with one short check-your-understanding question.`);
+    $('epBody').innerHTML=marked.parse(md.trim());
+  }catch(err){
+    $('epBody').innerHTML='<span style="color:var(--danger)">⚠ '+esc(err.message)+'</span>';
+  }
+}
+function closeExplain(){$('explainPanel').classList.remove('open')}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeExplain();hlMenu.style.display='none'}});
+function explainToTutor(){
+  closeExplain();
+  switchView('tutor');
+  $('tutorInput').value=`About this part of my notes: "${hlText.slice(0,300)}" — `;
+  $('tutorInput').focus();
 }
 
 /* ================= backup & PDF export ================= */
