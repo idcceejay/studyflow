@@ -214,7 +214,17 @@ html,.content{scroll-behavior:smooth}
 .ep-body code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:12.5px}
 .ep-foot{padding:12px 18px;border-top:1px solid var(--border)}
 
-/* ---------- tutor chat ---------- */
+/* ---------- tutor chat (split-screen dock) ---------- */
+.work{display:flex;flex:1;min-height:0}
+#tutorDock{width:0;min-width:0;border-left:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;overflow:hidden;transition:width .38s cubic-bezier(.25,.9,.3,1),min-width .38s cubic-bezier(.25,.9,.3,1)}
+.work.split #tutorDock{width:42%;min-width:360px}
+.dock-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;min-width:340px}
+.dock-head h4{font-size:14.5px;font-weight:700;white-space:nowrap}
+.dock-sel{margin:0 14px 10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:12.5px;outline:none;min-width:300px}
+#tutorDock .chat-log{flex:1;padding:6px 14px 10px;min-width:340px}
+#tutorDock .chat-input-row{min-width:340px}
+#tutorToggle.on{background:var(--accent);color:#fff}
+@media(max-width:900px){.work.split #tutorDock{position:fixed;top:0;right:0;height:100vh;width:100%;min-width:0;z-index:60}}
 .chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 300px);min-height:320px}
 .chat-log{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:4px 2px 14px}
 .msg{max-width:80%;padding:10px 15px;border-radius:14px;font-size:14px;line-height:1.55;overflow-wrap:break-word}
@@ -290,14 +300,15 @@ html,.content{scroll-behavior:smooth}
         <button class="tab active" data-view="notes" onclick="switchView('notes')">📝 Notes</button>
         <button class="tab" data-view="quiz" onclick="switchView('quiz')">❓ Quiz</button>
         <button class="tab" data-view="cards" onclick="switchView('cards')">🃏 Flashcards</button>
-        <button class="tab" data-view="tutor" onclick="switchView('tutor')">💬 Tutor</button>
       </div>
       <div style="display:flex;align-items:center;gap:12px">
         <div class="status-pill" id="apiStatus"><span class="dot"></span>No API key</div>
+        <button class="btn btn-soft" id="tutorToggle" onclick="toggleTutor()">💬 Tutor</button>
         <button class="icon-btn" id="themeBtn" title="Toggle light / dark mode" onclick="toggleTheme()">🌙</button>
       </div>
     </div>
 
+    <div class="work" id="workArea">
     <div class="content">
       <!-- NOTES VIEW -->
       <div class="view active" id="view-notes">
@@ -364,25 +375,25 @@ html,.content{scroll-behavior:smooth}
         <div id="cardArea"></div>
       </div>
 
-      <!-- TUTOR VIEW -->
-      <div class="view" id="view-tutor">
-        <div class="panel" style="margin-bottom:14px">
-          <h3>💬 Your 24/7 AI Tutor</h3>
-          <p class="panel-sub">Ask anything, any time — explain a concept, work through a problem, or quiz yourself out loud. Your tutor can read your notes for context.</p>
-          <div class="gen-row">
-            <select id="tutorNoteSel"></select>
-            <button class="btn btn-ghost" onclick="clearTutor()">🗑 Clear chat</button>
-          </div>
-        </div>
-        <div class="chat-wrap">
-          <div class="chat-log" id="chatLog"></div>
-          <div class="chat-input-row">
-            <textarea id="tutorInput" rows="1" placeholder="Ask your tutor anything… (Enter to send, Shift+Enter for a new line)"
-              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendTutor()}"></textarea>
-            <button class="btn btn-primary" id="tutorSend" onclick="sendTutor()">Send</button>
-          </div>
+    </div>
+
+    <!-- TUTOR SPLIT-SCREEN DOCK -->
+    <aside id="tutorDock">
+      <div class="dock-head">
+        <h4>💬 24/7 Tutor</h4>
+        <div style="display:flex;gap:6px">
+          <button class="icon-btn" onclick="clearTutor()" title="Delete chat history">🗑</button>
+          <button class="icon-btn" onclick="toggleTutor()" title="Close split screen">✕</button>
         </div>
       </div>
+      <select id="tutorNoteSel" class="dock-sel" title="What the tutor can see"></select>
+      <div class="chat-log" id="chatLog"></div>
+      <div class="chat-input-row" style="padding:0 14px 14px;margin-top:8px">
+        <textarea id="tutorInput" rows="1" placeholder="Ask your tutor… (Enter to send)"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendTutor()}"></textarea>
+        <button class="btn btn-primary" id="tutorSend" onclick="sendTutor()">➤</button>
+      </div>
+    </aside>
     </div>
   </div>
 </div>
@@ -1072,8 +1083,16 @@ function switchView(v){
 }
 
 /* ================= 24/7 tutor chat ================= */
-const LS_TUTOR='sf_tutor';
+const LS_TUTOR='sf_tutor',LS_SPLIT='sf_split';
 let tutorMsgs=JSON.parse(localStorage.getItem(LS_TUTOR)||'[]');
+function toggleTutor(force){
+  const w=$('workArea');
+  const open=force===true?true:force===false?false:!w.classList.contains('split');
+  w.classList.toggle('split',open);
+  $('tutorToggle').classList.toggle('on',open);
+  localStorage.setItem(LS_SPLIT,open?'1':'0');
+  if(open){renderTutor();setTimeout(()=>{const l=$('chatLog');l.scrollTop=l.scrollHeight;$('tutorInput').focus()},420)}
+}
 function tutorContext(){
   const sel=$('tutorNoteSel').value;
   if(sel==='none'||!notes.length)return '';
@@ -1096,7 +1115,8 @@ async function sendTutor(){
     const reply=await gemini(null,{contents,system});
     tutorMsgs.push({role:'model',text:reply.trim()});
   }catch(err){tutorMsgs.push({role:'model',text:'⚠ '+err.message})}
-  localStorage.setItem(LS_TUTOR,JSON.stringify(tutorMsgs.slice(-40)));
+  tutorMsgs=tutorMsgs.slice(-300);
+  localStorage.setItem(LS_TUTOR,JSON.stringify(tutorMsgs));
   btn.disabled=false;
   renderTutor();
   $('tutorInput').focus();
@@ -1218,9 +1238,8 @@ function closeExplain(){$('explainPanel').classList.remove('open')}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeExplain();hlMenu.style.display='none'}});
 function explainToTutor(){
   closeExplain();
-  switchView('tutor');
+  toggleTutor(true);
   $('tutorInput').value=`About this part of my notes: "${hlText.slice(0,300)}" — `;
-  $('tutorInput').focus();
 }
 
 /* ================= backup & PDF export ================= */
@@ -1318,6 +1337,7 @@ function toggleTheme(){
 currentId=notes[0]?.id||null;
 renderSidebar();renderNote();updateStatus();renderTutor();
 applyTheme(localStorage.getItem(LS_THEME)||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'));
+if(localStorage.getItem(LS_SPLIT)==='1')toggleTutor(true);
 </script>
 </body>
 </html>
